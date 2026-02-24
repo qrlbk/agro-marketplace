@@ -16,11 +16,21 @@ class Settings(BaseSettings):
     sms_api_url: str = ""
     sms_api_key: str = ""
     webhook_1c_api_key: str = ""
+    adata_api_key: str = ""
+    adata_bin_lookup_url: str = "https://api.adata.kz/v1/bin"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+    openai_chat_model: str = ""
+    openai_tool_model: str = ""
+    openai_chat_max_tokens: int = 500
+    openai_timeout_seconds: float = 60.0
     cache_ttl_seconds: int = 300
     max_upload_mb: int = 10
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002"
+    # Staff portal: optional separate JWT secret (defaults to jwt_secret); seed defaults
+    staff_jwt_secret: str | None = None  # None = use jwt_secret with iss=staff-portal
+    staff_default_login: str = "admin"
+    staff_default_password: str = "admin"
 
     class Config:
         env_file = _env_path

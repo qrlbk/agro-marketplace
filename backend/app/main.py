@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import settings
 from app.database import get_db
-from app.routers import auth, products, machines, garage, cart, checkout, orders, vendor_upload, recommendations, webhooks, admin, categories, search, chat
+from app.routers import auth, products, machines, garage, cart, checkout, orders, vendor_upload, vendors, recommendations, webhooks, admin, categories, search, chat, notifications, feedback, staff, regions
 
 # Директория загрузок (фото товаров): backend/uploads
 UPLOADS_ROOT = Path(__file__).resolve().parent.parent / "uploads"
@@ -67,12 +67,17 @@ app.include_router(cart.router, prefix="/cart", tags=["cart"])
 app.include_router(checkout.router, prefix="/checkout", tags=["checkout"])
 app.include_router(orders.router, prefix="/orders", tags=["orders"])
 app.include_router(vendor_upload.router, prefix="/vendor", tags=["vendor"])
+app.include_router(vendors.router, prefix="/vendors", tags=["vendors"])
 app.include_router(recommendations.router, prefix="/recommendations", tags=["recommendations"])
 app.include_router(search.router, prefix="/search", tags=["search"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(categories.router, prefix="/categories", tags=["categories"])
+app.include_router(regions.router, prefix="/regions", tags=["regions"])
+app.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+app.include_router(feedback.router, prefix="/feedback", tags=["feedback"])
+app.include_router(staff.router, prefix="/staff", tags=["staff"])
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_ROOT)), name="uploads")
 

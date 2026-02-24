@@ -8,5 +8,6 @@ def get_openai_client() -> AsyncOpenAI | None:
     if not settings.openai_api_key:
         return None
     # Свой httpx-клиент без proxies — обход бага openai + httpx (proxies в 0.26/0.28)
-    http_client = httpx.AsyncClient(timeout=60.0)
+    timeout = getattr(settings, "openai_timeout_seconds", 60.0)
+    http_client = httpx.AsyncClient(timeout=float(timeout))
     return AsyncOpenAI(api_key=settings.openai_api_key, http_client=http_client)

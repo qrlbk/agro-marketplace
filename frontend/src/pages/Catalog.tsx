@@ -5,8 +5,9 @@ import { useAuth } from "../hooks/useAuth";
 import { useCartContext } from "../contexts/CartContext";
 import { ProductCard } from "../components/ProductCard";
 import { GarageWidget } from "../components/GarageWidget";
-import { PageLayout } from "../components/PageLayout";
+import { motion } from "framer-motion";
 import { AlertCircle, X, SlidersHorizontal } from "lucide-react";
+import { toast } from "react-hot-toast";
 
 const PARTS_ROOT_SLUG = "zapchasti-tehnika";
 
@@ -56,13 +57,16 @@ function sortProducts(items: Product[], sort: SortOption): Product[] {
 function CatalogSkeleton() {
   return (
     <ul className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {[1, 2, 3, 4, 5, 6].map((i) => (
-        <li key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="aspect-square bg-gray-200 animate-pulse" />
-          <div className="p-5 space-y-2">
-            <div className="h-5 bg-gray-200 rounded w-4/5 animate-pulse" />
-            <div className="h-4 bg-gray-200 rounded w-1/3 animate-pulse" />
-            <div className="h-6 bg-gray-200 rounded w-1/4 animate-pulse mt-3" />
+      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+        <li key={i} className="bg-white rounded-2xl border border-gray-200 shadow-md overflow-hidden flex flex-col">
+          <div className="aspect-square bg-gray-100 animate-pulse" />
+          <div className="p-4 space-y-3 flex-1 flex flex-col">
+            <div className="h-5 bg-gray-200 rounded w-full animate-pulse" />
+            <div className="h-4 bg-gray-100 rounded w-2/3 animate-pulse" />
+            <div className="mt-auto pt-3 border-t border-gray-100 space-y-3">
+              <div className="h-5 bg-gray-200 rounded w-1/3 animate-pulse" />
+              <div className="h-12 bg-gray-100 rounded-xl w-full animate-pulse" />
+            </div>
           </div>
         </li>
       ))}
@@ -74,15 +78,15 @@ export function Catalog() {
   const [searchParams, setSearchParams] = useSearchParams();
   const q = searchParams.get("q") ?? "";
   const categoryIdParam = searchParams.get("category") ?? "";
+  const machineIdParam = searchParams.get("machine_id") ?? "";
   const [categoryId, setCategoryId] = useState(categoryIdParam);
-  const [machineId, setMachineId] = useState<string>("");
+  const [machineId, setMachineId] = useState<string>(machineIdParam);
   const [sortBy, setSortBy] = useState<SortOption>("default");
   const [data, setData] = useState<ProductList | null>(null);
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [addedProductId, setAddedProductId] = useState<number | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendationOut[]>([]);
   const { token } = useAuth();
   const { invalidateCart } = useCartContext();
@@ -94,6 +98,10 @@ export function Catalog() {
   useEffect(() => {
     setCategoryId(categoryIdParam);
   }, [categoryIdParam]);
+
+  useEffect(() => {
+    setMachineId(machineIdParam);
+  }, [machineIdParam]);
 
   useEffect(() => {
     getCategoryTree().then(setCategoryTree).catch(() => setCategoryTree([]));
@@ -175,35 +183,56 @@ export function Catalog() {
           token,
         });
         invalidateCart();
-        setAddedProductId(productId);
-        setTimeout(() => setAddedProductId(null), 2500);
+        toast.success("Товар добавлен в корзину");
       } catch {
-        // no-op; user can retry
+        toast.error("Не удалось добавить товар в корзину");
       }
     },
     [token, navigate, invalidateCart]
   );
 
-  return (
-    <PageLayout>
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Каталог</h1>
-        <p className="mt-1 text-slate-600">
-          Запчасти и техника, семена, удобрения, СЗР — выберите раздел или смотрите весь каталог.
-        </p>
-      </header>
+  const categoryName = categoryId && categoryTree.length
+    ? (() => {
+        for (const r of categoryTree) {
+          if (String(r.id) === categoryId) return r.name;
+          const child = r.children.find((c) => String(c.id) === categoryId);
+          if (child) return child.name;
+        }
+        return "Каталог";
+      })()
+    : "Каталог";
+  const totalCount = data?.total ?? 0;
 
-      {/* Блок «Разделы» — быстрые ссылки на разделы каталога */}
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Дизайн: градиентный заголовок страницы */}
+      <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white py-12 sm:py-16">
+        <div className="max-w-7xl mx-auto px-4">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <h1 className="text-3xl sm:text-4xl font-bold mb-2">{categoryName}</h1>
+            <p className="text-lg sm:text-xl opacity-90">
+              {loading ? "Загрузка..." : data != null ? `Найдено ${totalCount} товаров` : "Запчасти и техника, семена, удобрения, СЗР"}
+            </p>
+          </motion.div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* Блок «Разделы» — быстрые ссылки */}
       {categoryTree.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {categoryTree.map((root) => (
             <Link
               key={root.id}
               to={`/catalog?category=${root.id}`}
-              className={`block p-4 rounded-xl border-2 text-center font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-800 focus-visible:ring-offset-2 ${
+              className={`block p-4 rounded-2xl border-2 text-center font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 ${
                 categoryId === String(root.id)
-                  ? "border-emerald-800 bg-emerald-50 text-emerald-900"
-                  : "border-gray-200 bg-white text-slate-800 hover:border-emerald-600 hover:bg-emerald-50/50"
+                  ? "border-green-500 bg-green-50 text-green-900"
+                  : "border-gray-200 bg-white text-gray-800 hover:border-green-500 hover:bg-green-50/50"
               }`}
             >
               {root.name}
@@ -214,14 +243,14 @@ export function Catalog() {
 
       {/* Фильтр по категории */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <label htmlFor="catalog-category" className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+        <label htmlFor="catalog-category" className="flex items-center gap-2 text-sm font-semibold text-gray-700">
           Раздел:
         </label>
         <select
           id="catalog-category"
           value={categoryId}
           onChange={(e) => handleCategoryChange(e.target.value)}
-          className="min-h-10 px-4 rounded-lg border border-gray-200 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-800/20 focus:border-emerald-800"
+          className="min-h-10 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-900 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 appearance-none cursor-pointer"
         >
           <option value="">Весь каталог</option>
           {categoryTree.map((root) => (
@@ -236,12 +265,12 @@ export function Catalog() {
           ))}
         </select>
         {categoryId && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 text-slate-800 text-sm font-semibold">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-100 text-green-800 text-sm font-semibold">
             Категория выбрана
             <button
               type="button"
               onClick={() => handleCategoryChange("")}
-              className="p-0.5 rounded hover:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+              className="p-0.5 rounded hover:bg-green-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
               aria-label="Сбросить категорию"
             >
               <X className="w-4 h-4" />
@@ -254,15 +283,24 @@ export function Catalog() {
       {showMachineFilter && (
         <>
           <div className="flex flex-wrap items-center gap-3 mb-6">
-            <label htmlFor="catalog-machine" className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <SlidersHorizontal className="w-4 h-4 text-slate-500" aria-hidden />
+            <label htmlFor="catalog-machine" className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <SlidersHorizontal className="w-4 h-4 text-gray-500" aria-hidden />
               Техника:
             </label>
             <select
               id="catalog-machine"
               value={machineId}
-              onChange={(e) => setMachineId(e.target.value)}
-              className="min-h-10 px-4 rounded-lg border border-gray-200 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-800/20 focus:border-emerald-800"
+              onChange={(e) => {
+                const value = e.target.value;
+                setMachineId(value);
+                setSearchParams((prev) => {
+                  const p = new URLSearchParams(prev);
+                  if (value) p.set("machine_id", value);
+                  else p.delete("machine_id");
+                  return p;
+                });
+              }}
+              className="min-h-10 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-900 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 appearance-none cursor-pointer"
             >
               <option value="">Вся техника</option>
               {machines.map((m) => (
@@ -272,12 +310,19 @@ export function Catalog() {
               ))}
             </select>
             {selectedMachine && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800 text-sm font-semibold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-100 text-green-800 text-sm font-semibold">
                 Фильтр: {selectedMachine.brand} {selectedMachine.model}
                 <button
                   type="button"
-                  onClick={() => setMachineId("")}
-                  className="p-0.5 rounded hover:bg-emerald-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+                  onClick={() => {
+                    setMachineId("");
+                    setSearchParams((prev) => {
+                      const p = new URLSearchParams(prev);
+                      p.delete("machine_id");
+                      return p;
+                    });
+                  }}
+                  className="p-0.5 rounded hover:bg-green-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
                   aria-label="Сбросить фильтр"
                 >
                   <X className="w-4 h-4" />
@@ -290,7 +335,14 @@ export function Catalog() {
             <div className="mb-6">
               <GarageWidget
                 selectedMachine={selectedMachine}
-                onClearFilter={() => setMachineId("")}
+                onClearFilter={() => {
+                  setMachineId("");
+                  setSearchParams((prev) => {
+                    const p = new URLSearchParams(prev);
+                    p.delete("machine_id");
+                    return p;
+                  });
+                }}
                 onAddMachine={() => navigate("/garage")}
               />
             </div>
@@ -299,23 +351,24 @@ export function Catalog() {
       )}
 
       {token && recommendations.length > 0 && (
-        <section className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200" aria-labelledby="recommendations-heading">
-          <h2 id="recommendations-heading" className="text-base font-semibold text-emerald-800 mb-3">
+        <section className="mb-6 p-4 rounded-2xl bg-purple-50 border border-purple-200" aria-labelledby="recommendations-heading">
+          <h2 id="recommendations-heading" className="text-base font-semibold text-purple-800 mb-3 flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs">AI</span>
             Рекомендуем для вашей техники
           </h2>
           <ul className="list-none p-0 m-0 flex flex-wrap gap-4">
             {recommendations.map((rec) => (
               <li key={rec.product_id} className="min-w-0 flex-1 basis-48 max-w-xs">
                 <Link
-                  to={`/product/${rec.product_id}`}
-                  className="block p-3 rounded-lg bg-white border border-emerald-200 hover:border-emerald-400 hover:shadow-sm transition-colors"
+                  to={`/products/${rec.product_id}`}
+                  className="block p-3 rounded-xl bg-white border border-purple-200 hover:border-purple-400 hover:shadow-md transition-all"
                 >
-                  <p className="font-medium text-slate-900 truncate">{rec.name}</p>
-                  <p className="text-sm text-slate-600 mt-0.5">{rec.article_number}</p>
-                  <p className="mt-1 text-emerald-800 font-semibold">
+                  <p className="font-medium text-gray-900 truncate">{rec.name}</p>
+                  <p className="text-sm text-gray-600 mt-0.5">{rec.article_number}</p>
+                  <p className="mt-1 text-green-600 font-semibold">
                     {Number(rec.price).toLocaleString("ru-KZ")} ₸
                   </p>
-                  <p className="text-xs text-slate-600 mt-1">{rec.message}</p>
+                  <p className="text-xs text-gray-600 mt-1">{rec.message}</p>
                 </Link>
               </li>
             ))}
@@ -324,18 +377,26 @@ export function Catalog() {
       )}
 
       {error && (
-        <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-red-700 font-medium">
-            <AlertCircle className="h-5 w-5 shrink-0" aria-hidden />
-            {error}
+        <div className="mb-6 p-4 rounded-2xl bg-red-50 border border-red-200 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-red-700 font-medium">
+              <AlertCircle className="h-5 w-5 shrink-0" aria-hidden />
+              {error}
+            </div>
+            <button
+              type="button"
+              onClick={fetchProducts}
+              className="min-h-10 px-4 rounded-xl border-2 border-red-500 text-red-600 font-semibold hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2"
+            >
+              Повторить
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={fetchProducts}
-            className="min-h-10 px-4 rounded-lg border-2 border-red-500 text-red-600 font-semibold hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-800 focus-visible:ring-offset-2"
-          >
-            Повторить
-          </button>
+          <p className="text-sm text-red-600/90">
+            Если вы только запустили проект: запустите Docker Desktop, затем в корне проекта выполните{" "}
+            <code className="bg-red-100 px-1.5 py-0.5 rounded">docker compose -f docker/docker-compose.yml up -d</code>
+            {" "}и{" "}
+            <code className="bg-red-100 px-1.5 py-0.5 rounded">npm run db:init</code>.
+          </p>
         </div>
       )}
 
@@ -344,21 +405,21 @@ export function Catalog() {
       {!loading && data != null && (
         <>
           {q.trim() && data.suggested_terms && data.suggested_terms.some((t) => t !== q.trim()) && (
-            <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-slate-700">
-              <span className="font-medium text-emerald-800">Умный поиск:</span>{" "}
+            <div className="mb-4 p-3 rounded-xl bg-green-50 border border-green-200 text-sm text-gray-700">
+              <span className="font-medium text-green-800">Умный поиск:</span>{" "}
               По запросу «{q.trim()}» также ищем: {data.suggested_terms.filter((t) => t !== q.trim()).join(", ")}
             </div>
           )}
           <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-            <p className="text-slate-600 font-medium">
-              Найдено: <span className="font-semibold text-slate-900">{data.total}</span>
+            <p className="text-gray-600 font-medium">
+              Показано <span className="font-semibold text-gray-900">{data.total}</span> товаров
             </p>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
               Сортировка:
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="min-h-9 pl-3 pr-8 rounded-lg border border-gray-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-800/20 focus:border-emerald-800"
+                className="min-h-9 pl-3 pr-8 py-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-900 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 appearance-none cursor-pointer"
               >
                 <option value="default">По умолчанию</option>
                 <option value="price_asc">Цена: по возрастанию</option>
@@ -369,20 +430,20 @@ export function Catalog() {
             </label>
           </div>
 
-          <ul className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <ul className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in">
             {sortedItems.map((p) => (
               <li key={p.id}>
                 <ProductCard
                   product={p}
                   compatibleWithGarage={!!machineId}
                   onAddToCart={handleAddToCart}
-                  addedToCart={addedProductId === p.id}
                 />
               </li>
             ))}
           </ul>
         </>
       )}
-    </PageLayout>
+      </div>
+    </div>
   );
 }

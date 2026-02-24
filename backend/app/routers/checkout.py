@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -57,6 +58,8 @@ async def checkout(
             comment=body.comment,
         )
         db.add(order)
+        await db.flush()
+        order.order_number = f"ORD-{datetime.utcnow().year}-{order.id:06d}"
         await db.flush()
         for p, qty in rows:
             oi = OrderItem(order_id=order.id, product_id=p.id, quantity=qty, price_at_order=p.price)

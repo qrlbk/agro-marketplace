@@ -41,5 +41,9 @@ export function useAuth() {
     setUser(null);
   };
 
-  return { token, user, loading, login, logout };
+  const refreshUser = useCallback(() => {
+    if (token) loadUser();
+  }, [token, loadUser]);
+
+  return { token, user, loading, login, logout, refreshUser };
 }

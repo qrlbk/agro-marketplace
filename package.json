@@ -1,0 +1,12 @@
+{
+  "name": "agro-marketplace",
+  "private": true,
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
+    "docker:up": "docker compose -f docker/docker-compose.yml up -d",
+    "db:init": "bash scripts/init_local.sh",
+    "backend": "cd backend && uvicorn app.main:app --reload"
+  }
+}

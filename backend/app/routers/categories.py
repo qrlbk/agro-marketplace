@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -6,6 +7,7 @@ from app.models.category import Category
 from app.schemas.category import CategoryOut, CategoryCreate, CategoryTreeOut
 from app.dependencies import get_current_admin
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -32,9 +34,13 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
 
 @router.get("/tree", response_model=list[CategoryTreeOut])
 async def tree_categories(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Category).order_by(Category.slug))
-    categories = result.scalars().all()
-    return _build_tree(categories)
+    try:
+        result = await db.execute(select(Category).order_by(Category.slug))
+        categories = list(result.scalars().all())
+        return _build_tree(categories)
+    except Exception as e:
+        logger.exception("Categories tree failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("", response_model=CategoryOut)

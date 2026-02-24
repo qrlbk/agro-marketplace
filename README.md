@@ -20,6 +20,8 @@ docker compose -f docker/docker-compose.yml up -d
 
 ## Structure
 
-- `backend/` — FastAPI, SQLAlchemy, Alembic, Redis, JWT, OTP, catalog, garage, cart, checkout, AI agents, webhooks
-- `frontend/` — React 18, TypeScript, routing, catalog, garage, cart, admin
-- `docker/` — docker-compose for dev (PostgreSQL, Redis)
+- **`backend/`** — основное API: FastAPI, SQLAlchemy, Alembic, Redis, JWT, OTP, catalog, garage, cart, checkout, AI agents, webhooks
+- **`frontend/`** — основное приложение: React 18, TypeScript, маршрутизация, каталог, гараж, корзина, админ-панель, Staff portal
+- **`docker/`** — docker-compose для разработки (PostgreSQL, Redis)
+
+Папки `src/` в корне репозитория и «Дизайн маркетплейса агрономий» — референс или архив; для запуска и деплоя используйте только `frontend/` и `backend/`.

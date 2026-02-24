@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { request, Order } from "../api/client";
+import { MessageCircle } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { PageLayout } from "../components/PageLayout";
 import { Package } from "lucide-react";
@@ -89,9 +90,18 @@ export function Orders() {
             key={o.id}
             className="bg-white border border-gray-200 rounded-md shadow-sm p-6"
           >
-            <p className="font-bold text-slate-900">
-              Заказ #{o.id} · {Number(o.total_amount).toLocaleString("ru-KZ")} ₸ · Статус: {o.status}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-bold text-slate-900">
+                {o.order_number ?? `Заказ #${o.id}`} · {Number(o.total_amount).toLocaleString("ru-KZ")} ₸ · Статус: {o.status}
+              </p>
+              <Link
+                to={`/feedback?order_id=${o.id}`}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-800 hover:text-emerald-900"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Связаться с поддержкой по этому заказу
+              </Link>
+            </div>
             <p className="text-slate-600 text-sm mt-1">
               {new Date(o.created_at).toLocaleString("ru-RU")}
             </p>

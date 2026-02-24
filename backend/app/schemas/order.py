@@ -18,6 +18,7 @@ class OrderItemOut(BaseModel):
 
 class OrderOut(BaseModel):
     id: int
+    order_number: str | None = None
     user_id: int
     vendor_id: int
     total_amount: Decimal
@@ -29,6 +30,11 @@ class OrderOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AdminOrderOut(OrderOut):
+    user_phone: str | None = None
+    vendor_phone: str | None = None
 
 
 class CheckoutIn(BaseModel):

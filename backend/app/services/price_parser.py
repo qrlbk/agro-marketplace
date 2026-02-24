@@ -9,6 +9,7 @@ from rapidfuzz import fuzz, process
 
 from app.config import settings
 from app.services.llm_client import get_openai_client
+from app.services.llm_logging import create_completion_logged
 
 # Standard catalog fields we want to map from Excel
 STANDARD_FIELDS = ("article_number", "name", "price", "quantity")
@@ -55,9 +56,12 @@ async def get_column_mapping_from_llm(sample_rows: list[dict]) -> ColumnMappingR
         return ColumnMappingResult(mapping=DEFAULT_MAPPING.copy(), confidence=DEFAULT_CONFIDENCE.copy())
 
     prompt = json.dumps(sample_rows[:15], ensure_ascii=False)
+    model = getattr(settings, "openai_tool_model", None) or settings.openai_model
     try:
-        resp = await client.chat.completions.create(
-            model=settings.openai_model,
+        resp = await create_completion_logged(
+            client,
+            "price_parser",
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},

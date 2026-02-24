@@ -2,29 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Дизайн маркетплейса агрономий — единая тема */
 @layer base {
   * {
     box-sizing: border-box;
   }
   body {
-    @apply m-0 font-sans min-h-screen bg-gray-50 text-slate-900;
+    @apply m-0 font-sans min-h-screen bg-gray-50 text-gray-900;
   }
   #root {
     @apply min-h-screen bg-gray-50;
   }
   h1 {
-    @apply text-2xl font-bold text-slate-900;
+    @apply text-2xl font-bold text-gray-900;
   }
   h2 {
-    @apply text-xl font-bold text-slate-900;
+    @apply text-xl font-bold text-gray-900;
+  }
+  a, button {
+    @apply transition-all duration-300;
   }
   a:focus-visible {
-    @apply outline-none ring-2 ring-emerald-800 ring-offset-2;
+    @apply outline-none ring-2 ring-green-500 ring-offset-2;
   }
   button:focus-visible,
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
-    @apply outline-none ring-2 ring-emerald-800/30 ring-offset-0;
+    @apply outline-none ring-2 ring-green-500/30 ring-offset-0;
   }
 }

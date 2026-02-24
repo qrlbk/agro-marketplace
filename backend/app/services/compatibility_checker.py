@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.services.llm_client import get_openai_client
+from app.services.llm_logging import create_completion_logged
 
 COMPATIBILITY_SYSTEM_PROMPT = """You are an expert in agricultural equipment parts compatibility (e.g. John Deere, CASE, CLAAS). Given a product (name and optional description) and a specific machine (brand, model, year), determine whether the part is suitable for that machine.
 
@@ -46,8 +47,11 @@ async def verify_compatibility(
     user_content = f"Product: {product_name}. Description: {desc_part or 'N/A'}. Machine: {machine_desc}. Is this part suitable? Reply with JSON: compatible, confidence, reason."
 
     try:
-        resp = await client.chat.completions.create(
-            model=settings.openai_model,
+        model = getattr(settings, "openai_tool_model", None) or settings.openai_model
+        resp = await create_completion_logged(
+            client,
+            "compatibility",
+            model=model,
             messages=[
                 {"role": "system", "content": COMPATIBILITY_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},

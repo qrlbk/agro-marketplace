@@ -5,6 +5,7 @@ import re
 from app.config import settings
 from app.schemas.maintenance import MaintenanceRecommendation
 from app.services.llm_client import get_openai_client
+from app.services.llm_logging import create_completion_logged
 
 MAINTENANCE_SYSTEM_PROMPT = """You are an expert in agricultural equipment maintenance. Given a machine (brand, model, year) and its current moto hours (engine/operating hours), recommend maintenance kit items based on typical service intervals.
 
@@ -34,8 +35,11 @@ async def recommend_maintenance_kits(
     user_content = f"Машина: {machine_desc}. Текущие моточасы: {moto_hours}. Дай рекомендации по ТО (фильтры, масла и т.д.) по интервалам. Все названия позиций и причины — только на русском."
 
     try:
-        resp = await client.chat.completions.create(
-            model=settings.openai_model,
+        model = getattr(settings, "openai_tool_model", None) or settings.openai_model
+        resp = await create_completion_logged(
+            client,
+            "maintenance",
+            model=model,
             messages=[
                 {"role": "system", "content": MAINTENANCE_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},

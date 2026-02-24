@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useAuth } from "../hooks/useAuth";
 import { useCartContext } from "../contexts/CartContext";
 import { request, type CartItem } from "../api/client";
-import { PageLayout } from "../components/PageLayout";
-import { Input, Button } from "../components/ui";
-import { ShoppingCart, Trash2 } from "lucide-react";
+import { ShoppingCart, Trash2, ChevronRight, Package } from "lucide-react";
 
 export function Cart() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -37,12 +36,16 @@ export function Cart() {
       setItems((prev) => prev.filter((i) => i.product_id !== productId));
       invalidateCart();
     } catch {
-      // keep list as is; user can retry
+      /* keep list */
     }
   };
 
   const checkout = async () => {
     if (!token || items.length === 0) return;
+    if (user?.role === "guest") {
+      navigate("/onboarding", { replace: true });
+      return;
+    }
     if (!address.trim()) {
       setCheckoutError("Укажите адрес доставки");
       return;
@@ -69,83 +72,161 @@ export function Cart() {
 
   if (loading) {
     return (
-      <PageLayout>
-        <h1>Корзина</h1>
-        <div className="animate-pulse space-y-4">
-          <div className="h-20 bg-gray-200 rounded-md" />
-          <div className="h-20 bg-gray-200 rounded-md" />
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-5xl mx-auto px-4 py-8">
+          <div className="animate-pulse space-y-4">
+            <div className="h-24 bg-white rounded-2xl shadow-md" />
+            <div className="h-24 bg-white rounded-2xl shadow-md" />
+          </div>
         </div>
-      </PageLayout>
+      </div>
     );
   }
 
   if (items.length === 0) {
     return (
-      <PageLayout>
-        <h1>Корзина</h1>
-        <div className="bg-white border border-gray-200 rounded-md shadow-sm p-12 text-center">
-          <ShoppingCart className="h-16 w-16 text-slate-300 mx-auto mb-4" aria-hidden />
-          <h2 className="text-xl font-bold text-slate-900 mb-2">Корзина пуста</h2>
-          <p className="text-slate-600 mb-6">Добавьте товары из каталога, чтобы оформить заказ.</p>
-          <Link
-            to="/catalog"
-            className="inline-flex items-center justify-center min-h-12 px-6 rounded-md bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-800 focus-visible:ring-offset-2"
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 py-20">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center"
           >
-            Перейти в каталог
-          </Link>
+            <Package size={80} className="text-gray-300 mx-auto mb-6" aria-hidden />
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">Корзина пуста</h1>
+            <p className="text-gray-600 mb-8">Добавьте товары из каталога</p>
+            <Link to="/catalog">
+              <motion.span
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="inline-block px-8 py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600 transition-colors"
+              >
+                Перейти в каталог
+              </motion.span>
+            </Link>
+          </motion.div>
         </div>
-      </PageLayout>
+      </div>
     );
   }
 
   return (
-    <PageLayout>
-      <nav className="text-sm text-slate-600 mb-4" aria-label="Хлебные крошки">
-        <Link to="/catalog" className="hover:text-emerald-800">Каталог</Link>
-        <span className="mx-2">→</span>
-        <span className="text-slate-900 font-medium">Корзина</span>
-      </nav>
-      <h1>Корзина</h1>
-      <ul className="list-none p-0 m-0 space-y-3">
-        {items.map((i) => (
-          <li
-            key={i.product_id}
-            className="bg-white border border-gray-200 rounded-md shadow-sm p-4 flex flex-wrap items-center justify-between gap-3"
-          >
-            <div className="min-w-0">
-              <span className="font-semibold text-slate-900">{i.name}</span>
-              <span className="text-slate-600 ml-2">· {i.article_number} × {i.quantity} = {(i.price * i.quantity).toLocaleString("ru-KZ")} ₸</span>
-            </div>
-            <Button
-              variant="danger"
-              className="shrink-0"
-              onClick={() => remove(i.product_id)}
-              aria-label={`Удалить ${i.name} из корзины`}
-            >
-              <Trash2 className="h-5 w-5" />
-              Удалить
-            </Button>
-          </li>
-        ))}
-      </ul>
-      <div className="bg-white border border-gray-200 rounded-md shadow-sm p-6 mt-6 max-w-xl">
-        <p className="text-lg font-bold text-slate-900 mb-4">Итого: {total.toLocaleString("ru-KZ")} ₸</p>
-        {checkoutError && (
-          <div className="mb-4 p-3 rounded-md bg-red-50 text-red-600 text-sm font-medium" role="alert">
-            {checkoutError}
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="flex items-center gap-2 text-sm text-gray-600 mb-6">
+          <Link to="/catalog" className="hover:text-green-600 transition-colors">
+            Каталог
+          </Link>
+          <ChevronRight size={16} aria-hidden />
+          <span className="text-gray-900 font-medium">Корзина</span>
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-3">
+            <ShoppingCart size={36} className="text-green-600" aria-hidden />
+            Корзина
+          </h1>
+          <p className="text-gray-600">{items.length} товар(ов)</p>
+        </motion.div>
+
+        <div className="grid lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-4">
+            {items.map((item, index) => (
+              <motion.div
+                key={item.product_id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="bg-white rounded-2xl p-6 shadow-md flex items-center gap-4"
+              >
+                <div className="w-24 h-24 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <Package className="w-10 h-10 text-gray-400" aria-hidden />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-lg text-gray-900 mb-1 truncate">
+                    {item.name}
+                  </h3>
+                  <p className="text-green-600 font-bold text-xl">
+                    {item.price.toLocaleString("ru-KZ")} ₸
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Количество: {item.quantity} шт · {(item.price * item.quantity).toLocaleString("ru-KZ")} ₸
+                  </p>
+                </div>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => remove(item.product_id)}
+                  className="p-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition-colors shrink-0"
+                  aria-label={`Удалить ${item.name} из корзины`}
+                >
+                  <Trash2 size={20} aria-hidden />
+                </motion.button>
+              </motion.div>
+            ))}
           </div>
-        )}
-        <Input
-          label="Адрес доставки"
-          placeholder="Укажите адрес доставки"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          className="mb-4"
-        />
-        <Button onClick={checkout} loading={checkingOut}>
-          Оформить заказ
-        </Button>
+
+          <div>
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-white rounded-2xl p-6 shadow-md sticky top-24"
+            >
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Оформление заказа</h2>
+
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Адрес доставки
+                </label>
+                <textarea
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition-colors"
+                  rows={3}
+                  placeholder="Введите адрес доставки..."
+                />
+              </div>
+
+              {checkoutError && (
+                <div className="mb-4 p-3 rounded-xl bg-red-50 text-red-600 text-sm font-medium" role="alert">
+                  {checkoutError}
+                </div>
+              )}
+
+              <div className="border-t border-gray-200 pt-4 mb-6">
+                <div className="flex justify-between mb-2">
+                  <span className="text-gray-600">Товары:</span>
+                  <span className="font-semibold">{total.toLocaleString("ru-KZ")} ₸</span>
+                </div>
+                <div className="flex justify-between mb-2">
+                  <span className="text-gray-600">Доставка:</span>
+                  <span className="font-semibold text-green-600">Бесплатно</span>
+                </div>
+                <div className="flex justify-between text-xl font-bold pt-4 border-t border-gray-200">
+                  <span>Итого:</span>
+                  <span className="text-green-600">{total.toLocaleString("ru-KZ")} ₸</span>
+                </div>
+              </div>
+
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={checkout}
+                disabled={checkingOut}
+                className="w-full px-6 py-4 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {checkingOut ? "Оформление..." : "Оформить заказ"}
+              </motion.button>
+            </motion.div>
+          </div>
+        </div>
       </div>
-    </PageLayout>
+    </div>
   );
 }

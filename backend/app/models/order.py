@@ -16,6 +16,7 @@ class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    order_number: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     vendor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     total_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)

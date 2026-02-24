@@ -26,6 +26,19 @@ export function VendorProducts() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  if (user?.role === "vendor" && user?.company_status === "pending_approval") {
+    return (
+      <PageLayout>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm p-8 max-w-xl text-center">
+          <h1 className="text-xl font-bold text-slate-900 mb-2">Заявка на рассмотрении</h1>
+          <p className="text-slate-700">
+            Ваша заявка на регистрацию как поставщик отправлена. Ожидайте одобрения администратора. После одобрения здесь будет доступен список и редактирование товаров.
+          </p>
+        </div>
+      </PageLayout>
+    );
+  }
+
   const load = useCallback(() => {
     if (!user?.id || !token) {
       setLoading(false);

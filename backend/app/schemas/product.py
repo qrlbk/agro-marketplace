@@ -17,6 +17,8 @@ class ProductOut(BaseModel):
     composition: str | None = None
     images: list[str] | None
     status: ProductStatus
+    average_rating: float | None = None
+    reviews_count: int = 0
 
     class Config:
         from_attributes = True

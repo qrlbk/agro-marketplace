@@ -1,4 +1,5 @@
 """AI search suggestions: synonyms and related part terms for a query."""
+import hashlib
 import json
 import re
 
@@ -6,6 +7,10 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.services.llm_client import get_openai_client
+from app.services.llm_logging import create_completion_logged
+from app.services.redis_client import cache_get, cache_set
+
+SUGGEST_CACHE_TTL = 300
 
 SUGGEST_SYSTEM_PROMPT = """You are an expert in agricultural equipment and spare parts terminology. Given a search query (in any language, e.g. "filter", "фильтр", "gasket"), suggest synonyms and related part terms that a buyer might also search for.
 
@@ -28,13 +33,25 @@ async def get_search_suggestions(q: str) -> SearchSuggestOut:
     if not original:
         return SearchSuggestOut(original_query=original, suggestions=[], expanded_terms=[])
 
+    cache_key = f"suggest:{hashlib.sha256(original.encode()).hexdigest()}"
+    cached = await cache_get(cache_key)
+    if isinstance(cached, dict) and "suggestions" in cached and "expanded_terms" in cached:
+        return SearchSuggestOut(
+            original_query=cached.get("original_query", original),
+            suggestions=cached.get("suggestions", [original]),
+            expanded_terms=cached.get("expanded_terms", [original]),
+        )
+
     client = get_openai_client()
     if not client:
         return SearchSuggestOut(original_query=original, suggestions=[original], expanded_terms=[original])
 
     try:
-        resp = await client.chat.completions.create(
-            model=settings.openai_model,
+        model = getattr(settings, "openai_tool_model", None) or settings.openai_model
+        resp = await create_completion_logged(
+            client,
+            "suggest",
+            model=model,
             messages=[
                 {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Query: {original}"},
@@ -65,8 +82,10 @@ async def get_search_suggestions(q: str) -> SearchSuggestOut:
     if original and original not in expanded:
         expanded = [original] + [t for t in expanded if t != original][:5]
 
-    return SearchSuggestOut(
+    result = SearchSuggestOut(
         original_query=original,
         suggestions=suggestions[:10],
         expanded_terms=expanded[:6],
     )
+    await cache_set(cache_key, result.model_dump(), ttl=SUGGEST_CACHE_TTL)
+    return result
