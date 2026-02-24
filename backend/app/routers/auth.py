@@ -1,7 +1,8 @@
+import logging
 import random
 import string
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,6 +21,10 @@ from app.dependencies import get_current_user
 from app.constants.regions import validate_region
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+OTP_RATELIMIT_PHONE_PREFIX = "ratelimit:otp:phone:"
+OTP_RATELIMIT_IP_PREFIX = "ratelimit:otp:ip:"
 
 
 def _ensure_valid_region(region: str | None) -> None:
@@ -41,8 +46,43 @@ def create_access_token(user_id: int, role: UserRole, phone: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+async def _check_otp_rate_limit(phone: str, client_ip: str) -> None:
+    """Raise HTTPException 429 if rate limit exceeded for phone or IP."""
+    r = await get_redis()
+    window = settings.otp_rate_limit_window_seconds
+    phone_key = f"{OTP_RATELIMIT_PHONE_PREFIX}{phone}"
+    ip_key = f"{OTP_RATELIMIT_IP_PREFIX}{client_ip}"
+
+    n_phone = await r.incr(phone_key)
+    if n_phone == 1:
+        await r.expire(phone_key, window)
+    if n_phone > settings.otp_rate_limit_per_phone:
+        logger.warning("OTP rate limit exceeded for phone (attempts=%s)", n_phone)
+        raise HTTPException(
+            status_code=429,
+            detail="Слишком много запросов кода. Попробуйте позже.",
+        )
+
+    n_ip = await r.incr(ip_key)
+    if n_ip == 1:
+        await r.expire(ip_key, window)
+    if n_ip > settings.otp_rate_limit_per_ip:
+        logger.warning("OTP rate limit exceeded for IP (attempts=%s)", n_ip)
+        raise HTTPException(
+            status_code=429,
+            detail="Слишком много запросов кода. Попробуйте позже.",
+        )
+
+
 @router.post("/request-otp")
-async def request_otp(body: RequestOTPIn, db: AsyncSession = Depends(get_db)):
+async def request_otp(
+    body: RequestOTPIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    client_ip = request.client.host if request.client else "0.0.0.0"
+    await _check_otp_rate_limit(body.phone, client_ip)
+
     code = "".join(random.choices(string.digits, k=OTP_LENGTH))
     r = await get_redis()
     key = f"{OTP_KEY_PREFIX}{body.phone}"
@@ -86,6 +126,8 @@ def _normalize_phone(phone: str) -> str:
 
 @router.post("/demo-login", response_model=TokenOut)
 async def demo_login(body: DemoLoginIn, db: AsyncSession = Depends(get_db)):
+    if not settings.demo_auth_enabled:
+        raise HTTPException(status_code=404, detail="Демо-вход отключён.")
     phone = _normalize_phone(body.phone)
     password = (body.password or "").strip()
     if phone not in DEMO_CREDENTIALS or DEMO_CREDENTIALS[phone][0] != password:

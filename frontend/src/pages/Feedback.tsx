@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { postFeedback, request, type Order } from "../api/client";
 import { PageLayout } from "../components/PageLayout";
 import { Input, Button } from "../components/ui";
+
+const SUPPORT_PHONE = import.meta.env.VITE_SUPPORT_PHONE ?? "";
+const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL ?? "";
 
 const SUBJECT_OPTIONS = [
   { value: "", label: "Выберите тему" },
@@ -105,6 +108,18 @@ export function Feedback() {
     <PageLayout>
       <div className="max-w-xl mx-auto py-4">
         <h1 className="text-2xl font-bold text-emerald-800 mb-6">Написать в поддержку</h1>
+        {(SUPPORT_PHONE || SUPPORT_EMAIL) && (
+          <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <p className="text-sm font-medium text-slate-700 mb-2">Связаться с нами:</p>
+            <ul className="text-slate-600 text-sm space-y-1">
+              {SUPPORT_PHONE && <li>Телефон: <a href={`tel:${SUPPORT_PHONE}`} className="text-emerald-700 hover:underline">{SUPPORT_PHONE}</a></li>}
+              {SUPPORT_EMAIL && <li>Email: <a href={`mailto:${SUPPORT_EMAIL}`} className="text-emerald-700 hover:underline">{SUPPORT_EMAIL}</a></li>}
+            </ul>
+          </div>
+        )}
+        <p className="text-slate-600 text-sm mb-4">
+          <Link to="/returns" className="text-emerald-700 hover:underline">Ознакомьтесь с политикой возвратов</Link>.
+        </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="feedback-subject" className="block text-sm font-medium text-slate-700 mb-1">

@@ -26,11 +26,17 @@ class Settings(BaseSettings):
     openai_timeout_seconds: float = 60.0
     cache_ttl_seconds: int = 300
     max_upload_mb: int = 10
+    # OTP rate limit: max requests per phone per window (and per IP)
+    otp_rate_limit_per_phone: int = 3
+    otp_rate_limit_window_seconds: int = 900  # 15 min
+    otp_rate_limit_per_ip: int = 10
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002"
     # Staff portal: optional separate JWT secret (defaults to jwt_secret); seed defaults
     staff_jwt_secret: str | None = None  # None = use jwt_secret with iss=staff-portal
     staff_default_login: str = "admin"
     staff_default_password: str = "admin"
+    # Set False in production to disable demo login (phone+password)
+    demo_auth_enabled: bool = True
 
     class Config:
         env_file = _env_path

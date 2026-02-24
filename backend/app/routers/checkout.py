@@ -9,9 +9,11 @@ from app.models.order import Order, OrderStatus, OrderItem
 from app.models.user import User
 from app.dependencies import get_current_user
 from app.schemas.order import CheckoutIn, CheckoutOut
-from app.services.cart_service import get_cart, clear_cart
+from app.services.cart_service import get_cart, clear_cart, CartUnavailableError
 
 router = APIRouter()
+
+CART_UNAVAILABLE_MSG = "Корзина временно недоступна. Попробуйте позже."
 
 
 @router.post("", response_model=CheckoutOut)
@@ -66,6 +68,9 @@ async def checkout(
             db.add(oi)
             p.stock_quantity -= qty
         order_ids.append(order.id)
-    await clear_cart(current_user.id)
+    try:
+        await clear_cart(current_user.id)
+    except CartUnavailableError:
+        raise HTTPException(503, CART_UNAVAILABLE_MSG)
     await db.flush()
     return CheckoutOut(order_ids=order_ids, message="Orders created")

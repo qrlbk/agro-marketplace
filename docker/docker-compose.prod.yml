@@ -1,0 +1,64 @@
+# Production-like stack: PostgreSQL, Redis, backend API, frontend (static).
+# From repo root: docker compose -f docker/docker-compose.prod.yml up -d
+# Required: create backend/.env (see backend/.env.example) with DATABASE_URL, REDIS_URL, JWT_SECRET, etc.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-agro_marketplace}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agro} -d ${POSTGRES_DB:-agro_marketplace}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    env_file: ../backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agro}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agro_marketplace}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - backend_uploads:/app/uploads
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_uploads:

@@ -41,6 +41,7 @@ import { AdminFeedback } from "./pages/admin/AdminFeedback";
 import { AdminFeedbackDetail } from "./pages/admin/AdminFeedbackDetail";
 import { AdminAudit } from "./pages/admin/AdminAudit";
 import { AdminSearch } from "./pages/admin/AdminSearch";
+import { ReturnsPolicy } from "./pages/ReturnsPolicy";
 
 const LANG_STORAGE_KEY = "agro-lang";
 
@@ -130,6 +131,7 @@ export default function App() {
         <Route path="/vendor/audit" element={<RequireAuth><RequireRole roles={["admin", "vendor"]}><VendorAudit /></RequireRole></RequireAuth>} />
         <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/returns" element={<ReturnsPolicy />} />
         <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
         <Route
           path="/admin"

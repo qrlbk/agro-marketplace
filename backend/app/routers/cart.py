@@ -6,9 +6,11 @@ from app.models.product import Product
 from app.models.user import User
 from app.schemas.cart import CartItemIn, CartItemOut
 from app.dependencies import get_current_user
-from app.services.cart_service import get_cart as get_cart_items, set_cart
+from app.services.cart_service import get_cart as get_cart_items, set_cart, CartUnavailableError
 
 router = APIRouter()
+
+CART_UNAVAILABLE_MSG = "Корзина временно недоступна. Попробуйте позже."
 
 
 @router.get("", response_model=list[CartItemOut])
@@ -51,7 +53,10 @@ async def add_to_cart(
             break
     if not found:
         items.append({"product_id": body.product_id, "quantity": body.quantity, "vendor_id": product.vendor_id})
-    await set_cart(current_user.id, items)
+    try:
+        await set_cart(current_user.id, items)
+    except CartUnavailableError:
+        raise HTTPException(503, CART_UNAVAILABLE_MSG)
     return {"message": "Added"}
 
 
@@ -62,4 +67,7 @@ async def remove_from_cart(
 ):
     items = await get_cart_items(current_user.id)
     items = [x for x in items if x["product_id"] != product_id]
-    await set_cart(current_user.id, items)
+    try:
+        await set_cart(current_user.id, items)
+    except CartUnavailableError:
+        raise HTTPException(503, CART_UNAVAILABLE_MSG)

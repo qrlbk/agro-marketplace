@@ -72,7 +72,7 @@ uvicorn app.main:app --reload
 pytest tests/ -v
 ```
 
-Тесты не требуют запущенной БД/Redis для проверки `/health`, `/health/openai` и кода ответа 401 для защищённых эндпоинтов.
+Тесты `test_health.py` и `test_admin_auth.py` не требуют БД/Redis. Интеграционные тесты (`tests/test_checkout.py`) требуют запущенные PostgreSQL и Redis (например `docker compose -f docker/docker-compose.yml up -d` и корректный `DATABASE_URL` / `REDIS_URL` в `.env`).
 
 ## Безопасность
 
