@@ -72,7 +72,32 @@ uvicorn app.main:app --reload
 pytest tests/ -v
 ```
 
-Тесты `test_health.py` и `test_admin_auth.py` не требуют БД/Redis. Интеграционные тесты (`tests/test_checkout.py`) требуют запущенные PostgreSQL и Redis (например `docker compose -f docker/docker-compose.yml up -d` и корректный `DATABASE_URL` / `REDIS_URL` в `.env`).
+С отчётом покрытия:
+
+```bash
+pytest tests/ -v --cov=app
+```
+
+Отчёт в HTML: `backend/htmlcov/index.html`.
+
+**Маркеры:**
+
+- Тесты без маркера и с `@pytest.mark.unit` не требуют БД/Redis.
+- Тесты с `@pytest.mark.integration` требуют запущенные **PostgreSQL и Redis** (например `docker compose -f docker/docker-compose.yml up -d` и корректный `DATABASE_URL` / `REDIS_URL` в `.env`).
+
+Запуск только unit-тестов (без Docker):
+
+```bash
+pytest tests/ -v -m unit
+```
+
+Запуск только интеграционных:
+
+```bash
+pytest tests/ -v -m integration
+```
+
+**CI:** В GitHub Actions (`.github/workflows/tests.yml`) по умолчанию запускаются только unit-тесты бэкенда (без Docker). Интеграционные тесты нужно запускать локально или в CI с поднятыми PostgreSQL и Redis.
 
 ## Безопасность
 

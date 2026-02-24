@@ -32,3 +32,4 @@ python-multipart==0.0.9
 # Tests
 pytest==8.0.0
 pytest-asyncio==0.23.4
+pytest-cov==4.1.0
