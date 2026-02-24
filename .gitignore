@@ -47,3 +47,9 @@ logs/
 
 # Excel temp (lock) files
 ~$*
+
+# Archive / reference (not used by app)
+/src/
+design.png
+tools-and-prompts.md
+/Дизайн маркетплейса агрономий/
