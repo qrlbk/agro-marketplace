@@ -27,9 +27,10 @@ frontend/dist/
 # Uploads (user-uploaded product images)
 backend/uploads/
 
-# IDE
+# IDE / Cursor
 .idea/
 .vscode/
+.cursor/plans/
 *.swp
 *.swo
 
