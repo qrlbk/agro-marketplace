@@ -16,17 +16,43 @@ from app.models.machine import Machine
 from app.models.category import Category
 from app.dependencies import get_current_user_optional
 from app.services.chat_assistant import get_assistant_reply, stream_assistant_reply, _normalize_history
-from app.services.catalog_context import build_catalog_context, get_products_snippet
+from app.services.catalog_context import build_catalog_context, get_products_snippet, resolve_category_by_query
 from app.services.search_suggest import get_search_suggestions
 from app.services.redis_client import cache_get, cache_set
 
 router = APIRouter()
 
-# Slug раздела «Запчасти и техника» — подставляем category в ссылку, когда запрос про технику без текстового поиска
+# Slug раздела «Запчасти и техника» — подставляем category в ссылку только когда запрос про технику
 PARTS_CATEGORY_SLUG = "zapchasti-tehnika"
+
+# Ключевые слова запроса «про запчасти/технику» — только тогда подставляем machine_id + категория Запчасти
+PARTS_INTENT_KEYWORDS = (
+    "запчасти",
+    "для моей техники",
+    "для трактора",
+    "для машины",
+    "для техники",
+    "совместим",
+    "под мою технику",
+    "запчасти для",
+    "запчасти к",
+    "запчасти на",
+    "запчасти к технике",
+    "моей техники",
+    "моему трактору",
+    "моей машине",
+)
 
 # Вопросные начала — не использовать полный текст как поисковый запрос в ссылке
 QUESTION_PREFIXES = ("как ", "что ", "где ", "какие ", "покажи ", "есть ли ", "подскажи ", "найди ")
+
+
+def _is_parts_intent(message: str) -> bool:
+    """True if the user is asking about parts for their machine (garage), not e.g. fertilizers or seeds."""
+    if not (message or "").strip():
+        return False
+    msg_lower = (message or "").strip().lower()
+    return any(kw in msg_lower for kw in PARTS_INTENT_KEYWORDS)
 
 
 class ChatHistoryItem(BaseModel):
@@ -125,13 +151,12 @@ async def chat_message(
         )
         await cache_set(cache_key, {"reply": reply})
 
-    # Ссылка в каталог: при вопросе о «запчастях для моей техники» не подставлять вопрос в q,
-    # иначе в каталоге умный поиск даёт 0 товаров. Отдаём только machine_id и при желании категорию «Запчасти».
+    # Ссылка в каталог: только при запросе про запчасти/технику подставляем machine_id + Запчасти;
+    # иначе разрешаем категорию по тексту (удобрения, семена и т.д.) или fallback с q.
     msg_lower = (search_query or "").strip().lower()
     is_question = "?" in (body.message or "") or any(msg_lower.startswith(p) for p in QUESTION_PREFIXES)
-    use_question_link = machine_id is not None and (not products_snippet.strip() or is_question)
 
-    if use_question_link:
+    if _is_parts_intent(body.message or "") and machine_id is not None:
         params = {"machine_id": str(machine_id)}
         cat_result = await db.execute(
             select(Category.id).where(Category.slug == PARTS_CATEGORY_SLUG).limit(1)
@@ -141,12 +166,14 @@ async def chat_message(
             params["category"] = str(row[0])
         suggested_catalog_url = "/catalog?" + urlencode(params)
     else:
-        params = {}
-        if search_query and not is_question:
-            params["q"] = search_query
-        if machine_id is not None:
-            params["machine_id"] = str(machine_id)
-        suggested_catalog_url = "/catalog?" + urlencode(params) if params else "/catalog"
+        resolved_category_id = await resolve_category_by_query(db, search_query or (body.message or ""))
+        if resolved_category_id is not None:
+            suggested_catalog_url = "/catalog?" + urlencode({"category": str(resolved_category_id)})
+        else:
+            params = {}
+            if search_query and not is_question:
+                params["q"] = search_query
+            suggested_catalog_url = "/catalog?" + urlencode(params) if params else "/catalog"
 
     return ChatMessageOut(reply=reply, suggested_catalog_url=suggested_catalog_url)
 
@@ -183,8 +210,8 @@ async def chat_message_stream(
 
     msg_lower = (search_query or "").strip().lower()
     is_question = "?" in (body.message or "") or any(msg_lower.startswith(p) for p in QUESTION_PREFIXES)
-    use_question_link = machine_id is not None and (not products_snippet.strip() or is_question)
-    if use_question_link:
+
+    if _is_parts_intent(body.message or "") and machine_id is not None:
         params = {"machine_id": str(machine_id)}
         cat_result = await db.execute(
             select(Category.id).where(Category.slug == PARTS_CATEGORY_SLUG).limit(1)
@@ -194,12 +221,14 @@ async def chat_message_stream(
             params["category"] = str(row[0])
         suggested_catalog_url = "/catalog?" + urlencode(params)
     else:
-        params = {}
-        if search_query and not is_question:
-            params["q"] = search_query
-        if machine_id is not None:
-            params["machine_id"] = str(machine_id)
-        suggested_catalog_url = "/catalog?" + urlencode(params) if params else "/catalog"
+        resolved_category_id = await resolve_category_by_query(db, search_query or (body.message or ""))
+        if resolved_category_id is not None:
+            suggested_catalog_url = "/catalog?" + urlencode({"category": str(resolved_category_id)})
+        else:
+            params = {}
+            if search_query and not is_question:
+                params["q"] = search_query
+            suggested_catalog_url = "/catalog?" + urlencode(params) if params else "/catalog"
 
     async def event_stream():
         async for chunk in stream_assistant_reply(

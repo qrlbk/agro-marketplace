@@ -38,50 +38,36 @@ function TypingDots() {
   );
 }
 
-/** Turn assistant text into React nodes with clickable links (same-origin and https only). */
+/** Strip markdown links [text](url) to just the link text so no raw URL is shown. */
+function stripMarkdownLinks(text: string): string {
+  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+}
+
+/** Turn assistant text into React nodes. Only relative /catalog and /products URLs become clickable; absolute URLs are shown as plain text so no raw link is visible. */
 function renderAssistantContent(content: string): React.ReactNode {
-  const urlLike = /(https?:\/\/[^\s<>]+|\/(?:catalog|products)[^\s<>]*)/gi;
+  const cleaned = stripMarkdownLinks(content);
+  const urlLike = /(\/(?:catalog|products)[^\s<>]*)/gi;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let m: RegExpExecArray | null;
   const re = new RegExp(urlLike.source, "gi");
-  while ((m = re.exec(content)) !== null) {
+  while ((m = re.exec(cleaned)) !== null) {
     if (m.index > lastIndex) {
-      parts.push(content.slice(lastIndex, m.index));
+      parts.push(cleaned.slice(lastIndex, m.index));
     }
     const url = m[0];
-    const isRelative = url.startsWith("/");
-    const allowed = isRelative || url.startsWith("https://") || url.startsWith("http://");
-    if (allowed) {
-      if (isRelative) {
-        parts.push(
-          <Link
-            key={m.index}
-            to={url}
-            className="underline text-emerald-700 hover:text-emerald-800"
-          >
-            {url}
-          </Link>
-        );
-      } else {
-        parts.push(
-          <a
-            key={m.index}
-            href={url}
-            className="underline text-emerald-700 hover:text-emerald-800"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {url}
-          </a>
-        );
-      }
-    } else {
-      parts.push(url);
-    }
+    parts.push(
+      <Link
+        key={m.index}
+        to={url}
+        className="underline text-emerald-700 hover:text-emerald-800"
+      >
+        Открыть в каталоге
+      </Link>
+    );
     lastIndex = re.lastIndex;
   }
-  if (lastIndex < content.length) parts.push(content.slice(lastIndex));
+  if (lastIndex < cleaned.length) parts.push(cleaned.slice(lastIndex));
   return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : <>{parts}</>;
 }
 

@@ -102,10 +102,10 @@ export function Header({
           {/* Search Bar (Desktop) */}
           <form
             onSubmit={handleSearchSubmit}
-            className="hidden lg:flex flex-1 max-w-xl mx-4"
+            className="hidden lg:flex flex-1 min-w-[180px] max-w-xl mx-4"
             role="search"
           >
-            <div className="relative w-full">
+            <div className="relative w-full min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" aria-hidden />
               <input
                 type="search"
@@ -113,7 +113,7 @@ export function Header({
                 placeholder="Поиск по артикулу или названию…"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                className="w-full min-h-10 pl-10 pr-4 py-2 rounded-full border-2 border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 focus:bg-white transition-all"
+                className="w-full min-w-0 min-h-10 pl-10 pr-4 py-2 rounded-full border-2 border-gray-200 bg-gray-50 text-gray-900 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 focus:bg-white transition-all"
               />
             </div>
           </form>

@@ -1,4 +1,5 @@
 """Build catalog context string for the chat assistant (real-time category tree + optional product counts/snippet)."""
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 
@@ -82,6 +83,37 @@ def _collect_descendant_ids(categories: list[Category], root_id: int) -> set[int
 
     add_children(root_id)
     return ids
+
+
+def _normalize_for_match(s: str) -> str:
+    """Lowercase and collapse spaces for matching."""
+    return (s or "").lower().strip()
+
+
+async def resolve_category_by_query(db: AsyncSession, query: str) -> int | None:
+    """Find a category whose name or slug is mentioned in the query (e.g. 'удобрения' -> Удобрения).
+    Returns category id or None. Prefers root-level categories for clearer catalog navigation.
+    """
+    if not (query or "").strip():
+        return None
+    result = await db.execute(select(Category).order_by(Category.slug))
+    categories = list(result.scalars().all())
+    if not categories:
+        return None
+    query_lower = _normalize_for_match(query)
+    # Words from query (min length 3 to avoid noise)
+    words = [w for w in re.split(r"\W+", query_lower) if len(w) >= 3]
+    for cat in categories:
+        name_lower = _normalize_for_match(cat.name)
+        slug_lower = _normalize_for_match(cat.slug)
+        if not name_lower and not slug_lower:
+            continue
+        if name_lower in query_lower or slug_lower in query_lower:
+            return cat.id
+        for w in words:
+            if w in name_lower or name_lower in w or w in slug_lower or slug_lower in w:
+                return cat.id
+    return None
 
 
 async def get_products_snippet(
