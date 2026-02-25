@@ -205,7 +205,7 @@ export function Catalog() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Дизайн: градиентный заголовок страницы */}
+      {/* Градиентный заголовок страницы */}
       <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white py-12 sm:py-16">
         <div className="max-w-7xl mx-auto px-4">
           <motion.div

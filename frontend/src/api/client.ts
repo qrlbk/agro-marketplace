@@ -404,11 +404,49 @@ export function sendChatMessage(
   });
 }
 
+/** GET /chat/sessions — list current user's chat sessions (auth required). */
+export interface ChatSessionItem {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getChatSessions(token: string): Promise<ChatSessionItem[]> {
+  return request<ChatSessionItem[]>("/chat/sessions", { token });
+}
+
+/** GET /chat/sessions/:id/messages — get messages for a session (auth required). */
+export interface ChatSessionMessage {
+  role: string;
+  content: string;
+  suggested_catalog_url?: string | null;
+}
+
+export function getChatSessionMessages(
+  sessionId: number,
+  token: string
+): Promise<ChatSessionMessage[]> {
+  return request<ChatSessionMessage[]>(`/chat/sessions/${sessionId}/messages`, { token });
+}
+
+/** POST /chat/feedback — record thumbs up/down for a chat message. */
+export function sendChatFeedback(
+  messageId: string,
+  isPositive: boolean,
+  token?: string | null
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>("/chat/feedback", {
+    method: "POST",
+    body: JSON.stringify({ message_id: messageId, is_positive: isPositive }),
+    ...(token ? { token } : {}),
+  });
+}
+
 const CHAT_STREAM_TIMEOUT_MS = 60000;
 
 export interface ChatStreamCallbacks {
   onChunk: (content: string) => void;
-  onDone: (suggestedCatalogUrl: string | null) => void;
+  onDone: (suggestedCatalogUrl: string | null, suggestedFollowUps?: string[]) => void;
   onError: (message: string) => void;
 }
 
@@ -447,7 +485,7 @@ export function sendChatMessageStream(
       }
       const reader = res.body?.getReader();
       if (!reader) {
-        callbacks.onDone(null);
+        callbacks.onDone(null, undefined);
         return;
       }
       const decoder = new TextDecoder();
@@ -467,10 +505,14 @@ export function sendChatMessageStream(
                 content?: string;
                 done?: boolean;
                 suggested_catalog_url?: string | null;
+                suggested_follow_ups?: string[];
               };
               if (data.content != null) callbacks.onChunk(data.content);
               if (data.done) {
-                callbacks.onDone(data.suggested_catalog_url ?? null);
+                callbacks.onDone(
+                  data.suggested_catalog_url ?? null,
+                  data.suggested_follow_ups
+                );
                 return;
               }
             } catch {
@@ -478,7 +520,7 @@ export function sendChatMessageStream(
             }
           }
         }
-        callbacks.onDone(null);
+        callbacks.onDone(null, undefined);
       } catch (e) {
         if ((e as Error).name === "AbortError") {
           callbacks.onError("Запрос отменён.");

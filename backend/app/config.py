@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     otp_rate_limit_per_phone: int = 3
     otp_rate_limit_window_seconds: int = 900  # 15 min
     otp_rate_limit_per_ip: int = 10
+    # Chat rate limit: max requests per user/IP per window (avoid OpenAI budget burn)
+    chat_rate_limit_per_minute: int = 10
+    chat_rate_limit_window_seconds: int = 60
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002"
     # Staff portal: optional separate JWT secret (defaults to jwt_secret); seed defaults
     staff_jwt_secret: str | None = None  # None = use jwt_secret with iss=staff-portal

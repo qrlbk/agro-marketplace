@@ -5,7 +5,7 @@
 ## Структура проекта
 
 ```
-/src/staff/
+frontend/src/staff/
 ├── App.tsx                      # Главный компонент портала
 ├── routes.ts                    # Роутинг портала
 ├── context/

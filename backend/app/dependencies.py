@@ -232,6 +232,35 @@ def get_client_ip(request: Request | None = None) -> str | None:
     return None
 
 
+CHAT_RATELIMIT_PREFIX = "chat_rl:"
+
+
+async def check_chat_rate_limit(
+    request: Request,
+    current_user: User | None = Depends(get_current_user_optional),
+) -> None:
+    """Raise HTTP 429 if chat request rate exceeded. Key by user_id if authenticated else by IP."""
+    from app.services.redis_client import get_redis
+
+    if current_user is not None:
+        key = f"{CHAT_RATELIMIT_PREFIX}user:{current_user.id}"
+    else:
+        ip = get_client_ip(request) or "0.0.0.0"
+        key = f"{CHAT_RATELIMIT_PREFIX}ip:{ip}"
+    r = await get_redis()
+    window = getattr(settings, "chat_rate_limit_window_seconds", 60)
+    limit = getattr(settings, "chat_rate_limit_per_minute", 10)
+    n = await r.incr(key)
+    if n == 1:
+        await r.expire(key, window)
+    if n > limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Слишком много запросов к чату. Подождите минуту.",
+            headers={"Retry-After": str(window)},
+        )
+
+
 async def verify_webhook_1c_key(api_key: str | None = Depends(api_key_header)) -> None:
     if not settings.webhook_1c_api_key or api_key != settings.webhook_1c_api_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook key")

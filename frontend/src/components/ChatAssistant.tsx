@@ -1,7 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { MessageCircle, X, Send, RotateCw, MessageSquarePlus, ExternalLink, Square } from "lucide-react";
-import { sendChatMessage, sendChatMessageStream, getOpenAIHealth } from "../api/client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { MessageCircle, X, Send, RotateCw, MessageSquarePlus, ExternalLink, Square, Copy, ThumbsUp, ThumbsDown } from "lucide-react";
+import toast from "react-hot-toast";
+import {
+  sendChatMessage,
+  sendChatMessageStream,
+  sendChatFeedback,
+  getChatSessions,
+  getChatSessionMessages,
+  getOpenAIHealth,
+} from "../api/client";
 import { Button, Input } from "./ui";
 import { useAuth } from "../hooks/useAuth";
 
@@ -20,11 +30,19 @@ const QUICK_REPLIES: string[] = [
 
 const BATCH_MS = 80;
 
+function nextMessageId(): string {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 type ChatMessage = {
+  id: string;
   role: "user" | "assistant";
   content: string;
   isError?: boolean;
   suggestedCatalogUrl?: string;
+  suggestedFollowUps?: string[];
   streamTruncated?: boolean;
 };
 
@@ -38,51 +56,29 @@ function TypingDots() {
   );
 }
 
-/** Turn assistant text into React nodes with clickable links (same-origin and https only). */
+/** Render assistant message with Markdown. Internal /catalog and /products links become Link; other links are rendered as text only (no raw URL). */
 function renderAssistantContent(content: string): React.ReactNode {
-  const urlLike = /(https?:\/\/[^\s<>]+|\/(?:catalog|products)[^\s<>]*)/gi;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let m: RegExpExecArray | null;
-  const re = new RegExp(urlLike.source, "gi");
-  while ((m = re.exec(content)) !== null) {
-    if (m.index > lastIndex) {
-      parts.push(content.slice(lastIndex, m.index));
-    }
-    const url = m[0];
-    const isRelative = url.startsWith("/");
-    const allowed = isRelative || url.startsWith("https://") || url.startsWith("http://");
-    if (allowed) {
-      if (isRelative) {
-        parts.push(
-          <Link
-            key={m.index}
-            to={url}
-            className="underline text-emerald-700 hover:text-emerald-800"
-          >
-            {url}
-          </Link>
-        );
-      } else {
-        parts.push(
-          <a
-            key={m.index}
-            href={url}
-            className="underline text-emerald-700 hover:text-emerald-800"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {url}
-          </a>
-        );
-      }
-    } else {
-      parts.push(url);
-    }
-    lastIndex = re.lastIndex;
-  }
-  if (lastIndex < content.length) parts.push(content.slice(lastIndex));
-  return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : <>{parts}</>;
+  const isInternalPath = (href: string) =>
+    href.startsWith("/catalog") || href.startsWith("/products");
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ href, children }) => {
+          if (href && isInternalPath(href)) {
+            return (
+              <Link to={href} className="underline text-emerald-700 hover:text-emerald-800">
+                {children}
+              </Link>
+            );
+          }
+          return <span>{children}</span>;
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 }
 
 export interface ChatAssistantProps {
@@ -97,10 +93,14 @@ function loadStoredMessages(): ChatMessage[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    const list = parsed.slice(-MAX_STORED_MESSAGES) as ChatMessage[];
-    return list.filter(
+    const list = parsed.slice(-MAX_STORED_MESSAGES) as (ChatMessage & { id?: string })[];
+    const valid = list.filter(
       (m) => m && typeof m.role === "string" && typeof m.content === "string"
     );
+    return valid.map((m) => ({
+      ...m,
+      id: typeof m.id === "string" && m.id ? m.id : nextMessageId(),
+    }));
   } catch {
     return [];
   }
@@ -112,11 +112,15 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
   const isControlled = isOpen !== undefined && typeof onClose === "function";
   const open = isControlled ? isOpen : internalOpen;
   const [messages, setMessages] = useState<ChatMessage[]>(loadStoredMessages);
+  const [feedbackSent, setFeedbackSent] = useState<Set<string>>(() => new Set());
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userWasAtBottomRef = useRef(true);
   const hasCheckedDisclaimer = useRef(false);
+  const hasLoadedServerHistory = useRef(false);
   const streamAbortRef = useRef<{ abort: () => void } | null>(null);
   const streamBufferRef = useRef("");
   const streamBatchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,6 +139,45 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
   }, [open]);
 
   useEffect(() => {
+    hasLoadedServerHistory.current = false;
+  }, [token]);
+
+  useEffect(() => {
+    if (!open || !token || hasLoadedServerHistory.current) return;
+    hasLoadedServerHistory.current = true;
+    getChatSessions(token)
+      .then((sessions) => {
+        if (sessions.length === 0) return;
+        return getChatSessionMessages(sessions[0].id, token);
+      })
+      .then((messages) => {
+        if (!messages?.length) return;
+        setMessages(
+          messages.map((m) => ({
+            id: nextMessageId(),
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            suggestedCatalogUrl: m.suggested_catalog_url ?? undefined,
+          }))
+        );
+      })
+      .catch(() => {});
+  }, [open, token]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const threshold = 80;
+      userWasAtBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [open]);
+
+  useEffect(() => {
+    if (!userWasAtBottomRef.current) return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -186,12 +229,13 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
     if (!text.trim() || loading) return;
     const trimmed = text.trim();
     setInputValue("");
-    const userMsg: ChatMessage = { role: "user", content: trimmed };
+    userWasAtBottomRef.current = true;
+    const userMsg: ChatMessage = { id: nextMessageId(), role: "user", content: trimmed };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
     streamBufferRef.current = "";
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
-    const placeholder: ChatMessage = { role: "assistant", content: "" };
+    const placeholder: ChatMessage = { id: nextMessageId(), role: "assistant", content: "" };
     setMessages((prev) => [...prev, placeholder]);
 
     const { abort } = sendChatMessageStream(
@@ -204,7 +248,7 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
             streamBatchRef.current = setTimeout(flushStreamBuffer, BATCH_MS);
           }
         },
-        onDone(suggestedCatalogUrl) {
+        onDone(suggestedCatalogUrl, suggestedFollowUps) {
           if (streamBatchRef.current) clearTimeout(streamBatchRef.current);
           flushStreamBuffer();
           streamAbortRef.current = null;
@@ -215,8 +259,10 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
             if (last?.role === "assistant") {
               next[next.length - 1] = {
                 ...last,
+                id: last.id || nextMessageId(),
                 content: last.content || "—",
                 suggestedCatalogUrl: suggestedCatalogUrl ?? undefined,
+                suggestedFollowUps: suggestedFollowUps ?? undefined,
               };
             }
             return next;
@@ -235,6 +281,7 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
             const contentSoFar = (partial?.role === "assistant" ? partial.content : "") + pending;
             const hadContent = contentSoFar.length > 0;
             next.push({
+              id: nextMessageId(),
               role: "assistant",
               content: hadContent ? `${contentSoFar}\n\n[Ответ обрезан.] ${hint}` : hint,
               isError: true,
@@ -277,6 +324,7 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
       setMessages((prev) => [
         ...prev.slice(0, userIndex + 1),
         {
+          id: nextMessageId(),
           role: "assistant",
           content: res.reply,
           suggestedCatalogUrl: res.suggested_catalog_url ?? undefined,
@@ -298,7 +346,7 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
       }
       setMessages((prev) => [
         ...prev.slice(0, userIndex + 1),
-        { role: "assistant", content: hint, isError: true },
+        { id: nextMessageId(), role: "assistant", content: hint, isError: true },
       ]);
     } finally {
       setLoading(false);
@@ -311,6 +359,10 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
   };
 
   const showQuickReplies = messages.length <= QUICK_REPLIES_HIDE_AFTER;
+  const lastAssistant = messages.filter((m) => m.role === "assistant").pop();
+  const dynamicReplies =
+    lastAssistant?.suggestedFollowUps?.length ? lastAssistant.suggestedFollowUps : null;
+  const quickRepliesToShow = dynamicReplies ?? (showQuickReplies ? QUICK_REPLIES : []);
 
   return (
     <>
@@ -363,7 +415,10 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[200px]">
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[200px]"
+          >
             {messages.length === 0 && (
               <p className="text-sm text-slate-500">
                 Напишите вопрос по каталогу, запчастям или совместимости. Я подскажу, как искать и
@@ -372,7 +427,7 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
             )}
             {messages.map((m, i) => (
               <div
-                key={i}
+                key={m.id}
                 className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
@@ -411,6 +466,55 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
                       </Link>
                     </div>
                   )}
+                  {m.role === "assistant" && !m.isError && (
+                    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(m.content).then(
+                            () => toast.success("Скопировано"),
+                            () => toast.error("Не удалось скопировать")
+                          );
+                        }}
+                        className="inline-flex items-center gap-1 rounded text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-200/80 px-1.5 py-0.5"
+                        aria-label="Копировать ответ"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Копировать
+                      </button>
+                      <span className="text-slate-400">|</span>
+                      <button
+                        type="button"
+                        disabled={feedbackSent.has(m.id)}
+                        onClick={() => {
+                          sendChatFeedback(m.id, true, token ?? undefined).then(
+                            () => setFeedbackSent((prev) => new Set(prev).add(m.id)),
+                            () => {}
+                          );
+                        }}
+                        className="inline-flex items-center gap-1 rounded text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-200/80 px-1.5 py-0.5 disabled:opacity-50"
+                        aria-label="Полезно"
+                        title="Полезно"
+                      >
+                        <ThumbsUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={feedbackSent.has(m.id)}
+                        onClick={() => {
+                          sendChatFeedback(m.id, false, token ?? undefined).then(
+                            () => setFeedbackSent((prev) => new Set(prev).add(m.id)),
+                            () => {}
+                          );
+                        }}
+                        className="inline-flex items-center gap-1 rounded text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-200/80 px-1.5 py-0.5 disabled:opacity-50"
+                        aria-label="Не полезно"
+                        title="Не полезно"
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -429,9 +533,9 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
           </div>
 
           <div className="border-t border-gray-200 p-4 shrink-0">
-            {showQuickReplies && (
+            {quickRepliesToShow.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-3">
-                {QUICK_REPLIES.map((prompt) => (
+                {quickRepliesToShow.map((prompt) => (
                   <button
                     key={prompt}
                     type="button"
@@ -478,6 +582,14 @@ export function ChatAssistant({ isOpen, onClose }: ChatAssistantProps = {}) {
             </div>
             <p className="mt-2 text-xs text-slate-500">
               Ответы носят справочный характер. Проверяйте информацию в карточках товаров.
+            </p>
+            <p className="mt-1">
+              <Link
+                to="/feedback"
+                className="text-xs text-emerald-700 hover:text-emerald-800 underline"
+              >
+                Связаться с поддержкой
+              </Link>
             </p>
           </div>
         </div>

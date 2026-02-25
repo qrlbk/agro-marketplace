@@ -24,4 +24,4 @@ docker compose -f docker/docker-compose.yml up -d
 - **`frontend/`** — основное приложение: React 18, TypeScript, маршрутизация, каталог, гараж, корзина, админ-панель, Staff portal
 - **`docker/`** — docker-compose для разработки (PostgreSQL, Redis)
 
-Папки `src/` в корне репозитория и «Дизайн маркетплейса агрономий» — референс или архив; для запуска и деплоя используйте только `frontend/` и `backend/`.
+Для запуска и деплоя используйте только `frontend/` и `backend/`.

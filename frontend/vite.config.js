@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -15,5 +16,12 @@ export default defineConfig({
                 rewrite: function (path) { return (path.replace(/^\/api/, "") || "/"); },
             },
         },
+    },
+    test: {
+        environment: "jsdom",
+        globals: true,
+        include: ["src/**/*.{test,spec}.{ts,tsx}"],
+        setupFiles: ["src/test/setup.ts"],
+        testTimeout: 5000,
     },
 });

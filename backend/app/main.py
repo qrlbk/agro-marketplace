@@ -33,6 +33,11 @@ def _warn_weak_jwt_secret() -> None:
 async def lifespan(app: FastAPI):
     _warn_weak_jwt_secret()
     yield
+    try:
+        from app.services.llm_client import close_openai_client
+        await close_openai_client()
+    except Exception as e:
+        logger.warning("Closing OpenAI client: %s", e)
 
 
 app = FastAPI(title="Agro Marketplace API", version="0.1.0", docs_url="/docs", redoc_url="/redoc", lifespan=lifespan)
