@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import String, Enum, DateTime
+from sqlalchemy import String, Enum, DateTime, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from app.database import Base
@@ -8,6 +8,7 @@ from app.database import Base
 class CompanyStatus(str, enum.Enum):
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class Company(Base):
@@ -28,6 +29,7 @@ class Company(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    storage_used_mb: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     users: Mapped[list["User"]] = relationship("User", back_populates="company")
     members: Mapped[list["CompanyMember"]] = relationship("CompanyMember", back_populates="company")

@@ -73,7 +73,7 @@ export function Cart() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="page-container py-6">
           <div className="animate-pulse space-y-4">
             <div className="h-24 bg-white rounded-2xl shadow-md" />
             <div className="h-24 bg-white rounded-2xl shadow-md" />
@@ -86,7 +86,7 @@ export function Cart() {
   if (items.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 py-20">
+        <div className="page-container py-16">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -112,7 +112,7 @@ export function Cart() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="page-container py-6 sm:py-8">
         <div className="flex items-center gap-2 text-sm text-gray-600 mb-6">
           <Link to="/catalog" className="hover:text-green-600 transition-colors">
             Каталог
@@ -126,14 +126,14 @@ export function Cart() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-3">
-            <ShoppingCart size={36} className="text-green-600" aria-hidden />
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 flex items-center gap-3">
+            <ShoppingCart size={30} className="text-green-600" aria-hidden />
             Корзина
           </h1>
           <p className="text-gray-600">{items.length} товар(ов)</p>
         </motion.div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
+        <div className="grid gap-6 lg:grid-cols-3 lg:gap-8">
           <div className="lg:col-span-2 space-y-4">
             {items.map((item, index) => (
               <motion.div
@@ -141,19 +141,19 @@ export function Cart() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className="bg-white rounded-2xl p-6 shadow-md flex items-center gap-4"
+                className="bg-white rounded-2xl p-4 sm:p-6 shadow-md flex items-center gap-3 sm:gap-4"
               >
-                <div className="w-24 h-24 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
-                  <Package className="w-10 h-10 text-gray-400" aria-hidden />
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <Package className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400" aria-hidden />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-lg text-gray-900 mb-1 truncate">
+                  <h3 className="font-semibold text-sm sm:text-lg text-gray-900 mb-1 line-clamp-2">
                     {item.name}
                   </h3>
-                  <p className="text-green-600 font-bold text-xl">
+                  <p className="text-green-600 font-bold text-lg sm:text-xl">
                     {item.price.toLocaleString("ru-KZ")} ₸
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs sm:text-sm text-gray-600">
                     Количество: {item.quantity} шт · {(item.price * item.quantity).toLocaleString("ru-KZ")} ₸
                   </p>
                 </div>
@@ -162,10 +162,10 @@ export function Cart() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => remove(item.product_id)}
-                  className="p-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition-colors shrink-0"
+                  className="p-2 sm:p-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition-colors shrink-0"
                   aria-label={`Удалить ${item.name} из корзины`}
                 >
-                  <Trash2 size={20} aria-hidden />
+                  <Trash2 size={18} className="sm:w-5 sm:h-5" aria-hidden />
                 </motion.button>
               </motion.div>
             ))}

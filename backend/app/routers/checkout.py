@@ -10,6 +10,7 @@ from app.models.user import User
 from app.dependencies import get_current_user
 from app.schemas.order import CheckoutIn, CheckoutOut
 from app.services.cart_service import get_cart, clear_cart, CartUnavailableError
+from app.utils.sanitize import sanitize_text
 
 router = APIRouter()
 
@@ -25,6 +26,8 @@ async def checkout(
     items = await get_cart(current_user.id)
     if not items:
         raise HTTPException(400, "Cart is empty")
+    delivery_address = sanitize_text(body.delivery_address, max_length=512)
+    comment = sanitize_text(body.comment, max_length=1024)
     product_ids = [x["product_id"] for x in items]
     result = await db.execute(select(Product).where(Product.id.in_(product_ids)))
     products = {p.id: p for p in result.scalars().all()}
@@ -56,8 +59,8 @@ async def checkout(
             vendor_id=vendor_id,
             total_amount=total,
             status=OrderStatus.new,
-            delivery_address=body.delivery_address,
-            comment=body.comment,
+            delivery_address=delivery_address,
+            comment=comment,
         )
         db.add(order)
         await db.flush()

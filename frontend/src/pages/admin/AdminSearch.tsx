@@ -92,7 +92,7 @@ export function AdminSearch() {
               {result.users.map((u) => (
                 <li key={u.id}>
                   <Link
-                    to="/admin/users"
+                    to={`/admin/users/${u.id}`}
                     className="text-emerald-800 hover:underline"
                   >
                     {u.phone} {u.name ? `· ${u.name}` : ""} (id: {u.id})

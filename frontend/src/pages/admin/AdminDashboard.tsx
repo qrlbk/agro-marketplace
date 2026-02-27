@@ -83,8 +83,8 @@ export function AdminDashboard() {
             <p className="p-4 text-slate-600">Нет заказов.</p>
           ) : (
             <ul className="list-none p-0 m-0 divide-y divide-gray-200">
-              {data.recent_orders.map((o) => (
-                <li key={o.id}>
+              {data.recent_orders.map((o, idx) => (
+                <li key={o.id ?? `order-${idx}`}>
                   <Link
                     to={`/admin/orders/${o.id}`}
                     className="block px-4 py-3 hover:bg-gray-50 text-slate-900"
@@ -116,8 +116,8 @@ export function AdminDashboard() {
             <p className="p-4 text-slate-600">Нет пользователей.</p>
           ) : (
             <ul className="list-none p-0 m-0 divide-y divide-gray-200">
-              {data.recent_users.map((u) => (
-                <li key={u.id} className="px-4 py-3 text-slate-900">
+              {data.recent_users.map((u, idx) => (
+                <li key={u.id ?? `user-${idx}`} className="px-4 py-3 text-slate-900">
                   <span className="font-medium">{u.phone}</span>
                   <span className="text-slate-600 ml-2">{u.name ?? "—"}</span>
                   <span className="text-slate-500 text-sm ml-2">{u.role}</span>
@@ -149,8 +149,8 @@ export function AdminDashboard() {
             Последние отзывы
           </h2>
           <ul className="list-none p-0 m-0 divide-y divide-gray-200">
-            {data.recent_reviews.map((r) => (
-              <li key={r.review_id} className="px-4 py-3 text-slate-900">
+            {data.recent_reviews.map((r, idx) => (
+              <li key={r.review_id != null ? r.review_id : `review-${idx}`} className="px-4 py-3 text-slate-900">
                 <Link to={`/products/${r.product_id}`} className="text-emerald-800 hover:underline">
                   {r.product_name}
                 </Link>

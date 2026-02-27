@@ -39,7 +39,7 @@ async def lookup_bin(bin_str: str) -> dict[str, Any]:
                 headers={"Authorization": f"Bearer {settings.adata_api_key}"} if settings.adata_api_key else {},
             )
             if resp.status_code != 200:
-                logger.warning("BIN lookup non-200: %s %s", resp.status_code, resp.text[:200])
+                logger.warning("BIN lookup non-200: status=%s body_length=%s", resp.status_code, len(resp.text))
                 return {"name": None, "legal_address": None, "chairman_name": None, "manual_input_required": True}
             data = resp.json()
     except Exception as e:

@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from jose import jwt
 from passlib.context import CryptContext
+import pyotp
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -14,10 +15,14 @@ from app.schemas.staff import (
     StaffEmployeeOut, StaffEmployeeCreate, StaffEmployeeUpdate,
     PermissionOut, RoleOut, RoleCreate, RoleUpdate,
 )
-from app.dependencies import get_current_staff, get_current_staff_with_permission, get_current_staff_with_any_permission, STAFF_JWT_ISSUER
+from app.dependencies import get_current_staff, get_current_staff_with_permission, get_current_staff_with_any_permission, STAFF_JWT_ISSUER, get_client_ip
+from app.services.audit import write_staff_audit_log
+from app.services.redis_client import get_redis
 
 router = APIRouter()
 pwd_ctx = CryptContext(schemes=["bcrypt"])
+STAFF_RL_IP_PREFIX = "staffrl:ip:"
+STAFF_RL_LOGIN_PREFIX = "staffrl:login:"
 
 
 def _create_staff_token(staff_id: int, permissions: list[str]) -> str:
@@ -27,9 +32,8 @@ def _create_staff_token(staff_id: int, permissions: list[str]) -> str:
         "sub": str(staff_id),
         "exp": expire,
         "permissions": permissions,
+        "iss": STAFF_JWT_ISSUER,
     }
-    if not settings.staff_jwt_secret:
-        payload["iss"] = STAFF_JWT_ISSUER
     return jwt.encode(payload, secret, algorithm=settings.jwt_algorithm)
 
 
@@ -45,12 +49,79 @@ def _staff_to_me_out(staff: Staff) -> StaffMeOut:
     )
 
 
+def _validate_staff_password(password: str) -> None:
+    min_len = settings.staff_password_min_length
+    if len(password) < min_len:
+        raise HTTPException(status_code=400, detail=f"Пароль должен содержать минимум {min_len} символов.")
+    if not any(c.isalpha() for c in password):
+        raise HTTPException(status_code=400, detail="Пароль должен содержать буквы.")
+    if not any(c.isdigit() for c in password):
+        raise HTTPException(status_code=400, detail="Пароль должен содержать цифры.")
+
+
+async def _is_staff_login_blocked(login: str, client_ip: str) -> bool:
+    r = await get_redis()
+    login_key = f"{STAFF_RL_LOGIN_PREFIX}{login}"
+    ip_key = f"{STAFF_RL_IP_PREFIX}{client_ip}"
+    login_count = await r.get(login_key)
+    ip_count = await r.get(ip_key)
+    if login_count and int(login_count) >= settings.staff_login_rate_limit_per_login:
+        return True
+    if ip_count and int(ip_count) >= settings.staff_login_rate_limit_per_ip:
+        return True
+    return False
+
+
+async def _register_staff_login_failure(login: str, client_ip: str) -> None:
+    r = await get_redis()
+    window = settings.staff_login_rate_limit_window_seconds
+
+    login_key = f"{STAFF_RL_LOGIN_PREFIX}{login}"
+    attempts_login = await r.incr(login_key)
+    if attempts_login == 1:
+        await r.expire(login_key, window)
+    if attempts_login >= settings.staff_login_rate_limit_per_login:
+        raise HTTPException(status_code=429, detail="Слишком много попыток входа. Попробуйте позже.")
+
+    ip_key = f"{STAFF_RL_IP_PREFIX}{client_ip}"
+    attempts_ip = await r.incr(ip_key)
+    if attempts_ip == 1:
+        await r.expire(ip_key, window)
+    if attempts_ip >= settings.staff_login_rate_limit_per_ip:
+        raise HTTPException(status_code=429, detail="Слишком много попыток входа. Попробуйте позже.")
+
+
+async def _reset_staff_login_counters(login: str, client_ip: str) -> None:
+    r = await get_redis()
+    await r.delete(f"{STAFF_RL_LOGIN_PREFIX}{login}")
+    await r.delete(f"{STAFF_RL_IP_PREFIX}{client_ip}")
+
+
+def _verify_totp(code: str) -> bool:
+    secret = (settings.staff_totp_secret or "").strip()
+    if not secret:
+        return False
+    try:
+        totp = pyotp.TOTP(secret)
+        return bool(totp.verify(code, valid_window=1))
+    except Exception:
+        return False
+
 @router.post("/login", response_model=TokenOut)
-async def staff_login(body: StaffLoginIn, db: AsyncSession = Depends(get_db)):
+async def staff_login(
+    body: StaffLoginIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     login = (body.login or "").strip()
-    password = body.password or ""
+    password = (body.password or "").strip()
     if not login:
         raise HTTPException(status_code=400, detail="Login required")
+    if not password:
+        raise HTTPException(status_code=400, detail="Password required")
+    client_ip = get_client_ip(request) or "0.0.0.0"
+    if await _is_staff_login_blocked(login, client_ip):
+        raise HTTPException(status_code=429, detail="Слишком много попыток входа. Попробуйте позже.")
     result = await db.execute(
         select(Staff).where(Staff.login == login).options(
             selectinload(Staff.role).selectinload(Role.permissions)
@@ -58,11 +129,65 @@ async def staff_login(body: StaffLoginIn, db: AsyncSession = Depends(get_db)):
     )
     staff = result.scalar_one_or_none()
     if not staff:
+        await _register_staff_login_failure(login, client_ip)
         raise HTTPException(status_code=401, detail="Invalid login or password")
     if not staff.is_active:
+        await write_staff_audit_log(
+            db,
+            staff.id,
+            "staff_login_blocked",
+            details={"reason": "disabled"},
+            ip=client_ip,
+        )
         raise HTTPException(status_code=403, detail="Account disabled")
     if not pwd_ctx.verify(password, staff.password_hash):
+        try:
+            await _register_staff_login_failure(login, client_ip)
+        except HTTPException as exc:
+            await write_staff_audit_log(
+                db,
+                staff.id,
+                "staff_login_blocked",
+                details={"reason": "rate_limit"},
+                ip=client_ip,
+            )
+            raise exc
+        await write_staff_audit_log(
+            db,
+            staff.id,
+            "staff_login_failed",
+            details={"reason": "bad_password"},
+            ip=client_ip,
+        )
         raise HTTPException(status_code=401, detail="Invalid login or password")
+
+    if settings.staff_totp_required:
+        otp_code = (body.otp_code or "").strip()
+        if not otp_code:
+            await _register_staff_login_failure(login, client_ip)
+            raise HTTPException(status_code=400, detail="Требуется одноразовый код.")
+        if not _verify_totp(otp_code):
+            try:
+                await _register_staff_login_failure(login, client_ip)
+            except HTTPException as exc:
+                await write_staff_audit_log(
+                    db,
+                    staff.id,
+                    "staff_login_blocked",
+                    details={"reason": "rate_limit"},
+                    ip=client_ip,
+                )
+                raise exc
+            await write_staff_audit_log(
+                db,
+                staff.id,
+                "staff_login_failed",
+                details={"reason": "totp_invalid"},
+                ip=client_ip,
+            )
+            raise HTTPException(status_code=401, detail="Неверный одноразовый код.")
+
+    await _reset_staff_login_counters(login, client_ip)
     permissions = [p.code for p in staff.role.permissions] if staff.role else []
     if staff.role and staff.role.slug == "super_admin":
         permissions = [
@@ -71,6 +196,13 @@ async def staff_login(body: StaffLoginIn, db: AsyncSession = Depends(get_db)):
             "staff.manage", "roles.manage",
         ]
     token = _create_staff_token(staff.id, permissions)
+    await write_staff_audit_log(
+        db,
+        staff.id,
+        "staff_login_success",
+        details={"login": login},
+        ip=client_ip,
+    )
     return TokenOut(access_token=token)
 
 
@@ -87,7 +219,9 @@ async def staff_change_password(
 ):
     if not pwd_ctx.verify(body.current_password, staff.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
-    staff.password_hash = pwd_ctx.hash(body.new_password)
+    new_password = (body.new_password or "").strip()
+    _validate_staff_password(new_password)
+    staff.password_hash = pwd_ctx.hash(new_password)
     await db.flush()
     await db.refresh(staff)
     return {"message": "Password updated"}
@@ -135,9 +269,11 @@ async def create_employee(
     role = result.scalar_one_or_none()
     if not role:
         raise HTTPException(status_code=400, detail="Role not found")
+    password = (body.password or "").strip()
+    _validate_staff_password(password)
     new_staff = Staff(
         login=body.login.strip(),
-        password_hash=pwd_ctx.hash(body.password),
+        password_hash=pwd_ctx.hash(password),
         role_id=body.role_id,
         name=(body.name.strip() or None) if (body.name and body.name.strip()) else None,
         is_active=body.is_active,
@@ -179,7 +315,9 @@ async def update_employee(
     if body.is_active is not None:
         emp.is_active = body.is_active
     if body.new_password is not None and body.new_password.strip():
-        emp.password_hash = pwd_ctx.hash(body.new_password)
+        new_password = body.new_password.strip()
+        _validate_staff_password(new_password)
+        emp.password_hash = pwd_ctx.hash(new_password)
     await db.flush()
     await db.refresh(emp)
     await db.refresh(emp.role)
@@ -255,6 +393,7 @@ async def create_role(
 
 @router.patch("/roles/{role_id}", response_model=RoleOut)
 async def update_role(
+    request: Request,
     role_id: int,
     body: RoleUpdate,
     db: AsyncSession = Depends(get_db),
@@ -279,6 +418,12 @@ async def update_role(
         perms = await db.execute(select(Permission).where(Permission.id.in_(body.permission_ids)))
         role.permissions = list(perms.scalars().all())
     await db.flush()
+    await write_staff_audit_log(
+        db, staff.id, "role_update",
+        entity_type="role", entity_id=role_id,
+        details={"name": role.name, "slug": role.slug},
+        ip=get_client_ip(request),
+    )
     await db.refresh(role)
     await db.refresh(role, ["permissions"])
     return RoleOut(id=role.id, name=role.name, slug=role.slug, is_system=role.is_system, permission_codes=[p.code for p in role.permissions])

@@ -7,15 +7,21 @@ export function StaffLogin() {
   const navigate = useNavigate();
   const [loginValue, setLoginValue] = useState("");
   const [password, setPassword] = useState("");
+  const [otpCode, setOtpCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const requireOtp = import.meta.env.VITE_STAFF_TOTP_REQUIRED === "true";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (requireOtp && !otpCode.trim()) {
+      setError("Введите одноразовый код.");
+      return;
+    }
     setLoading(true);
     try {
-      await login(loginValue, password);
+      await login(loginValue, password, requireOtp ? otpCode : undefined);
       navigate("/staff", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Неверный логин или пароль");
@@ -57,6 +63,22 @@ export function StaffLogin() {
               className="w-full px-3 py-2 rounded border border-gray-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-800/20 focus:border-emerald-800"
             />
           </div>
+          {requireOtp && (
+            <div>
+              <label htmlFor="staff-otp" className="block text-sm font-medium text-slate-700 mb-1">
+                Одноразовый код
+              </label>
+              <input
+                id="staff-otp"
+                type="text"
+                inputMode="numeric"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                autoComplete="one-time-code"
+                className="w-full px-3 py-2 rounded border border-gray-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-800/20 focus:border-emerald-800"
+              />
+            </div>
+          )}
           {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
           )}
@@ -69,7 +91,7 @@ export function StaffLogin() {
           </button>
         </form>
         <p className="mt-4 text-xs text-slate-500 text-center">
-          Демо: admin / admin (если backend не настроен)
+          Демо-учётные данные доступны только в локальном окружении.
         </p>
       </div>
     </div>

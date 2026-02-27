@@ -1,25 +1,34 @@
+import json
+import logging
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime, timezone, timedelta, date
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, exists, text
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import ProgrammingError, OperationalError
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.company import Company, CompanyStatus
 from app.models.order import Order, OrderStatus, OrderItem
-from app.models.feedback import FeedbackTicket, FeedbackStatus
+from app.models.feedback import FeedbackTicket, FeedbackMessage, FeedbackStatus
+from app.models.reply_template import ReplyTemplate
 from app.models.notification import Notification
 from app.models.product import Product
 from app.models.audit_log import AuditLog
 from app.models.product_review import ProductReview
 from app.schemas.user import UserOut
 from app.schemas.order import OrderItemOut, AdminOrderOut
-from app.schemas.feedback import FeedbackTicketAdminOut, FeedbackTicketUpdate
+from app.schemas.feedback import FeedbackTicketAdminOut, FeedbackTicketUpdate, FeedbackMessageOut, ReplyTemplateOut, ReplyTemplateCreate
 from app.schemas.audit import AuditLogOut
-from app.dependencies import require_admin_or_staff
+from app.dependencies import require_admin_or_staff, get_client_ip
+from app.models.staff import Staff
+from app.services.audit import write_audit_log, write_staff_audit_log
+from app.services.redis_client import get_redis
 from pydantic import BaseModel
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class UserUpdateRole(BaseModel):
@@ -39,21 +48,32 @@ class PendingVendorOut(BaseModel):
     user_name: str | None
 
 
-@router.get("/users", response_model=list[UserOut])
+@router.get("/users")
 async def list_users(
     role: UserRole | None = Query(None),
     phone: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("users.view")),
 ):
-    stmt = select(User).options(selectinload(User.company)).order_by(User.id)
+    base = (
+        select(User)
+        .options(selectinload(User.company), selectinload(User.company_membership))
+        .order_by(User.id)
+    )
+    count_stmt = select(func.count()).select_from(User)
     if role:
-        stmt = stmt.where(User.role == role)
+        base = base.where(User.role == role)
+        count_stmt = count_stmt.where(User.role == role)
     if phone and phone.strip():
-        stmt = stmt.where(User.phone.ilike(f"%{phone.strip()}%"))
+        base = base.where(User.phone.ilike(f"%{phone.strip()}%"))
+        count_stmt = count_stmt.where(User.phone.ilike(f"%{phone.strip()}%"))
+    total = (await db.execute(count_stmt)).scalar() or 0
+    stmt = base.offset(offset).limit(limit)
     result = await db.execute(stmt)
     users = result.scalars().all()
-    return [
+    items = [
         UserOut(
             id=u.id,
             role=u.role,
@@ -63,9 +83,42 @@ async def list_users(
             company_id=u.company_id,
             company_details=u.company_details,
             company_status=u.company.status.value if u.company else None,
+            company_role=u.company_membership.company_role.value if u.company_membership else None,
+            chat_storage_opt_in=u.chat_storage_opt_in,
+            has_password=bool(u.password_hash),
         )
         for u in users
     ]
+    return {"items": items, "total": total}
+
+
+@router.get("/users/{user_id}", response_model=UserOut)
+async def get_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin_or_staff("users.view")),
+):
+    result = await db.execute(
+        select(User)
+            .where(User.id == user_id)
+            .options(selectinload(User.company), selectinload(User.company_membership))
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    return UserOut(
+        id=user.id,
+        role=user.role,
+        phone=user.phone,
+        name=user.name,
+        region=user.region,
+        company_id=user.company_id,
+        company_details=user.company_details,
+        company_status=user.company.status.value if user.company else None,
+        company_role=user.company_membership.company_role.value if user.company_membership else None,
+        chat_storage_opt_in=user.chat_storage_opt_in,
+        has_password=bool(user.password_hash),
+    )
 
 
 @router.patch("/users/{user_id}/role", response_model=UserOut)
@@ -76,7 +129,9 @@ async def set_user_role(
     current_user=Depends(require_admin_or_staff("users.edit")),
 ):
     result = await db.execute(
-        select(User).where(User.id == user_id).options(selectinload(User.company))
+        select(User)
+            .where(User.id == user_id)
+            .options(selectinload(User.company), selectinload(User.company_membership))
     )
     user = result.scalar_one_or_none()
     if not user:
@@ -95,6 +150,9 @@ async def set_user_role(
         company_id=user.company_id,
         company_details=user.company_details,
         company_status=user.company.status.value if user.company else None,
+        company_role=user.company_membership.company_role.value if user.company_membership else None,
+        chat_storage_opt_in=user.chat_storage_opt_in,
+        has_password=bool(user.password_hash),
     )
 
 
@@ -148,6 +206,7 @@ async def list_pending_vendors(
 
 @router.post("/vendors/{company_id}/approve")
 async def approve_vendor(
+    request: Request,
     company_id: int,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("vendors.approve")),
@@ -162,11 +221,23 @@ async def approve_vendor(
         return {"message": "Already approved"}
     company.status = CompanyStatus.APPROVED
     await db.flush()
+    ip = get_client_ip(request)
+    if isinstance(current_user, Staff):
+        await write_staff_audit_log(
+            db, current_user.id, "vendor_approve",
+            entity_type="company", entity_id=company_id, ip=ip, company_id=company_id,
+        )
+    else:
+        await write_audit_log(
+            db, current_user.id, company_id, "vendor_approve",
+            entity_type="company", entity_id=company_id, ip=ip,
+        )
     return {"message": "Vendor approved", "company_id": company_id}
 
 
 @router.post("/vendors/{company_id}/reject")
 async def reject_vendor(
+    request: Request,
     company_id: int,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("vendors.approve")),
@@ -177,19 +248,49 @@ async def reject_vendor(
     company = result.scalar_one_or_none()
     if not company:
         raise HTTPException(404, "Company not found")
-    company.status = CompanyStatus.PENDING_APPROVAL
+    company.status = CompanyStatus.REJECTED
     await db.flush()
-    return {"message": "Vendor remains pending (reject does not change status)"}
+    ip = get_client_ip(request)
+    if isinstance(current_user, Staff):
+        await write_staff_audit_log(
+            db, current_user.id, "vendor_reject",
+            entity_type="company", entity_id=company_id, ip=ip, company_id=company_id,
+        )
+    else:
+        await write_audit_log(
+            db, current_user.id, company_id, "vendor_reject",
+            entity_type="company", entity_id=company_id, ip=ip,
+        )
+    return {"message": "Vendor rejected", "company_id": company_id}
 
 
 # --- Feedback (support tickets) ---
+
+def _feedback_message_out(m: FeedbackMessage) -> FeedbackMessageOut:
+    return FeedbackMessageOut(
+        id=m.id, ticket_id=m.ticket_id, sender_type=m.sender_type,
+        sender_user_id=m.sender_user_id, sender_staff_id=m.sender_staff_id,
+        message=m.message, created_at=m.created_at,
+    )
+
 
 def _feedback_to_admin_out(
     ticket: FeedbackTicket,
     user: User | None,
     order_number: str | None = None,
     product_name: str | None = None,
+    messages_override: list | None = None,
 ) -> FeedbackTicketAdminOut:
+    if messages_override is not None:
+        msg_list = messages_override
+    else:
+        msg_list = [_feedback_message_out(m) for m in getattr(ticket, "messages", []) or []]
+    created_utc = ticket.created_at.replace(tzinfo=timezone.utc) if ticket.created_at.tzinfo is None else ticket.created_at
+    overdue = (
+        ticket.status != FeedbackStatus.resolved
+        and (datetime.now(timezone.utc) - created_utc).total_seconds() > 24 * 3600
+    )
+    assigned = getattr(ticket, "assigned_to", None)
     return FeedbackTicketAdminOut(
         id=ticket.id,
         user_id=ticket.user_id,
@@ -199,6 +300,10 @@ def _feedback_to_admin_out(
         message=ticket.message,
         contact_phone=ticket.contact_phone,
         status=ticket.status,
+        priority=getattr(ticket, "priority", "normal"),
+        category=getattr(ticket, "category", None),
+        assigned_to_id=getattr(ticket, "assigned_to_id", None),
+        assigned_to_name=assigned.name if assigned else None,
         admin_notes=ticket.admin_notes,
         order_id=ticket.order_id,
         order_number=order_number,
@@ -206,22 +311,97 @@ def _feedback_to_admin_out(
         product_name=product_name,
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
+        messages=msg_list,
+        overdue=overdue,
     )
 
 
-@router.get("/feedback", response_model=list[FeedbackTicketAdminOut])
+def _build_feedback_base(
+    status: FeedbackStatus | None,
+    user_id: int | None,
+    assigned_to_me: bool,
+    overdue: bool,
+    unanswered: bool,
+    current_user,
+):
+    base = (
+        select(FeedbackTicket)
+        .options(selectinload(FeedbackTicket.assigned_to))
+        .order_by(FeedbackTicket.created_at.desc())
+    )
+    if status is not None:
+        base = base.where(FeedbackTicket.status == status)
+    if user_id is not None:
+        base = base.where(FeedbackTicket.user_id == user_id)
+    if assigned_to_me and isinstance(current_user, Staff):
+        base = base.where(FeedbackTicket.assigned_to_id == current_user.id)
+    if overdue:
+        threshold = datetime.now(timezone.utc) - timedelta(hours=24)
+        base = base.where(
+            FeedbackTicket.status != FeedbackStatus.resolved,
+            FeedbackTicket.created_at < threshold,
+        )
+    if unanswered:
+        has_staff_reply = exists().where(
+            FeedbackMessage.ticket_id == FeedbackTicket.id,
+            FeedbackMessage.sender_type == "staff",
+        )
+        base = base.where(~has_staff_reply)
+    return base
+
+
+@router.get("/feedback")
 async def list_feedback(
     status: FeedbackStatus | None = Query(None),
+    user_id: int | None = Query(None),
+    assigned_to_me: bool = Query(False),
+    overdue: bool = Query(False),
+    unanswered: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("feedback.view")),
 ):
-    stmt = select(FeedbackTicket).order_by(FeedbackTicket.created_at.desc()).limit(limit).offset(offset)
-    if status is not None:
-        stmt = stmt.where(FeedbackTicket.status == status)
-    result = await db.execute(stmt)
-    tickets = result.scalars().all()
+    try:
+        return await _list_feedback_impl(
+            status, user_id, assigned_to_me, overdue, unanswered, limit, offset, db, current_user
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Admin list feedback failed: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def _list_feedback_impl(
+    status: FeedbackStatus | None,
+    user_id: int | None,
+    assigned_to_me: bool,
+    overdue: bool,
+    unanswered: bool,
+    limit: int,
+    offset: int,
+    db: AsyncSession,
+    current_user,
+):
+    base = _build_feedback_base(status, user_id, assigned_to_me, overdue, unanswered, current_user)
+    base_with_messages = base.options(selectinload(FeedbackTicket.messages))
+    load_messages = True
+    try:
+        subq = base_with_messages.subquery()
+        total = (await db.execute(select(func.count()).select_from(subq))).scalar() or 0
+        stmt = base_with_messages.offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        tickets = result.scalars().unique().all()
+    except (ProgrammingError, OperationalError, AttributeError):
+        await db.rollback()
+        base_fallback = _build_feedback_base(status, user_id, assigned_to_me, overdue, False, current_user)
+        subq = base_fallback.subquery()
+        total = (await db.execute(select(func.count()).select_from(subq))).scalar() or 0
+        stmt = base_fallback.offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        tickets = result.scalars().unique().all()
+        load_messages = False
     user_ids = [t.user_id for t in tickets if t.user_id]
     users_map: dict[int, User] = {}
     if user_ids:
@@ -237,15 +417,43 @@ async def list_feedback(
     if product_ids:
         p_result = await db.execute(select(Product).where(Product.id.in_(product_ids)))
         products_map = {p.id: p for p in p_result.scalars().all()}
-    return [
-        _feedback_to_admin_out(
-            t,
-            users_map.get(t.user_id) if t.user_id else None,
-            order_number=orders_map[t.order_id].order_number if t.order_id and t.order_id in orders_map else None,
-            product_name=products_map[t.product_id].name if t.product_id and t.product_id in products_map else None,
-        )
-        for t in tickets
-    ]
+    try:
+        items = [
+            _feedback_to_admin_out(
+                t,
+                users_map.get(t.user_id) if t.user_id else None,
+                order_number=orders_map[t.order_id].order_number if t.order_id and t.order_id in orders_map else None,
+                product_name=products_map[t.product_id].name if t.product_id and t.product_id in products_map else None,
+                messages_override=[] if not load_messages else None,
+            )
+            for t in tickets
+        ]
+    except (ProgrammingError, OperationalError, AttributeError, TypeError, ValueError):
+        items = []
+        total = 0
+    return {"items": items, "total": total}
+
+
+@router.get("/feedback/reply-templates", response_model=list[ReplyTemplateOut])
+async def list_reply_templates(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin_or_staff("feedback.view")),
+):
+    result = await db.execute(select(ReplyTemplate).order_by(ReplyTemplate.id))
+    return list(result.scalars().all())
+
+
+@router.post("/feedback/reply-templates", response_model=ReplyTemplateOut)
+async def create_reply_template(
+    body: ReplyTemplateCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin_or_staff("feedback.edit")),
+):
+    t = ReplyTemplate(name=body.name.strip(), body=body.body.strip())
+    db.add(t)
+    await db.flush()
+    await db.refresh(t)
+    return t
 
 
 @router.get("/feedback/{ticket_id}", response_model=FeedbackTicketAdminOut)
@@ -254,7 +462,11 @@ async def get_feedback(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("feedback.view")),
 ):
-    result = await db.execute(select(FeedbackTicket).where(FeedbackTicket.id == ticket_id))
+    result = await db.execute(
+        select(FeedbackTicket)
+        .where(FeedbackTicket.id == ticket_id)
+        .options(selectinload(FeedbackTicket.messages), selectinload(FeedbackTicket.assigned_to))
+    )
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(404, "Feedback ticket not found")
@@ -276,6 +488,7 @@ async def get_feedback(
 
 @router.patch("/feedback/{ticket_id}", response_model=FeedbackTicketAdminOut)
 async def update_feedback(
+    request: Request,
     ticket_id: int,
     body: FeedbackTicketUpdate,
     db: AsyncSession = Depends(get_db),
@@ -287,19 +500,56 @@ async def update_feedback(
         raise HTTPException(404, "Feedback ticket not found")
     if body.status is not None:
         ticket.status = body.status
+    if body.priority is not None:
+        ticket.priority = (body.priority or "normal").strip() or "normal"
+    if body.category is not None:
+        ticket.category = (body.category or "").strip() or None
+    if body.assigned_to_id is not None:
+        ticket.assigned_to_id = body.assigned_to_id if body.assigned_to_id else None
     if body.admin_notes is not None:
         ticket.admin_notes = body.admin_notes
     if body.send_reply and body.send_reply.strip():
-        if ticket.user_id:
-            notification = Notification(
-                user_id=ticket.user_id,
-                type="support_message",
-                payload={"text": body.send_reply.strip()},
+        if not ticket.user_id:
+            raise HTTPException(
+                400,
+                "Нельзя отправить ответ в приложение: обращение анонимное. Ответьте по указанному контакту (email/телефон).",
             )
-            db.add(notification)
-            await db.flush()
+        reply_text = body.send_reply.strip()
+        msg = FeedbackMessage(
+            ticket_id=ticket_id,
+            sender_type="staff",
+            sender_user_id=current_user.id if not isinstance(current_user, Staff) else None,
+            sender_staff_id=current_user.id if isinstance(current_user, Staff) else None,
+            message=reply_text,
+        )
+        db.add(msg)
+        await db.flush()
+        notification = Notification(
+            user_id=ticket.user_id,
+            type="support_message",
+            payload={"text": reply_text},
+        )
+        db.add(notification)
+        await db.flush()
     await db.flush()
-    await db.refresh(ticket)
+    ip = get_client_ip(request)
+    details = {}
+    if body.status is not None:
+        details["status"] = body.status.value if hasattr(body.status, "value") else str(body.status)
+    if body.send_reply and body.send_reply.strip():
+        details["reply_sent"] = True
+    if details:
+        if isinstance(current_user, Staff):
+            await write_staff_audit_log(
+                db, current_user.id, "feedback_update",
+                entity_type="feedback_ticket", entity_id=ticket_id, details=details, ip=ip,
+            )
+        else:
+            await write_audit_log(
+                db, current_user.id, None, "feedback_update",
+                entity_type="feedback_ticket", entity_id=ticket_id, details=details, ip=ip,
+            )
+    await db.refresh(ticket, ["messages", "assigned_to"])
     user = await db.get(User, ticket.user_id) if ticket.user_id else None
     order_number: str | None = None
     if ticket.order_id:
@@ -491,22 +741,43 @@ async def admin_search(
 
 # --- Dashboard ---
 
+DASHBOARD_CACHE_TTL = 300  # 5 minutes
+
+
 @router.get("/dashboard")
 async def admin_dashboard(
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("dashboard.view")),
 ):
-    total_orders = (await db.execute(select(func.count()).select_from(Order))).scalar() or 0
-    total_revenue = (await db.execute(select(func.coalesce(func.sum(Order.total_amount), 0)).select_from(Order))).scalar() or 0
-    by_status = (
-        await db.execute(select(Order.status, func.count(Order.id)).group_by(Order.status))
-    ).all()
+    cache_key = f"admin:dashboard:{date_from or 'all'}:{date_to or 'all'}"
+    try:
+        r = await get_redis()
+        cached = await r.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+    order_date_filter = None
+    if date_from is not None:
+        order_date_filter = Order.created_at >= datetime.combine(date_from, datetime.min.time()).replace(tzinfo=timezone.utc)
+    if date_to is not None:
+        to_dt = datetime.combine(date_to, datetime.max.time()).replace(tzinfo=timezone.utc)
+        order_date_filter = (Order.created_at <= to_dt) if order_date_filter is None else (order_date_filter & (Order.created_at <= to_dt))
+    def _orders_where(stmt):
+        return stmt.where(order_date_filter) if order_date_filter is not None else stmt
+    total_orders = (await db.execute(_orders_where(select(func.count()).select_from(Order)))).scalar() or 0
+    total_revenue = (await db.execute(_orders_where(select(func.coalesce(func.sum(Order.total_amount), 0)).select_from(Order)))).scalar() or 0
+    by_status = (await db.execute(_orders_where(select(Order.status, func.count(Order.id)).group_by(Order.status)))).all()
     recent_orders_stmt = (
         select(Order)
         .options(selectinload(Order.items))
         .order_by(Order.created_at.desc())
         .limit(10)
     )
+    if order_date_filter is not None:
+        recent_orders_stmt = recent_orders_stmt.where(order_date_filter)
     recent_orders_result = await db.execute(recent_orders_stmt)
     recent_orders = recent_orders_result.scalars().unique().all()
     product_map = await _load_product_map_for_orders(db, recent_orders)
@@ -555,7 +826,7 @@ async def admin_dashboard(
         {"review_id": r.id, "product_id": r.product_id, "product_name": name, "rating": r.rating, "created_at": r.created_at.isoformat()}
         for r, name in recent_reviews_result.all()
     ]
-    return {
+    out = {
         "total_orders": total_orders,
         "total_revenue": float(total_revenue),
         "by_status": {s.value: c for s, c in by_status},
@@ -565,6 +836,12 @@ async def admin_dashboard(
         "open_feedback_count": open_feedback_count,
         "recent_reviews": recent_reviews,
     }
+    try:
+        r = await get_redis()
+        await r.setex(cache_key, DASHBOARD_CACHE_TTL, json.dumps(out, default=str))
+    except Exception:
+        pass
+    return out
 
 
 # --- Send notification to user ---
@@ -599,45 +876,121 @@ async def send_notification(
 async def admin_audit_log(
     company_id: int | None = Query(None),
     user_id: int | None = Query(None),
+    staff_id: int | None = Query(None),
     action: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("audit.view")),
 ):
-    """List audit log entries. Admin only. Optional filters: company_id, user_id, action."""
-    stmt = (
-        select(AuditLog, User.phone, User.name)
-        .outerjoin(User, AuditLog.user_id == User.id)
-        .order_by(AuditLog.created_at.desc())
-    )
-    count_stmt = select(func.count()).select_from(AuditLog)
-    if company_id is not None:
-        stmt = stmt.where(AuditLog.company_id == company_id)
-        count_stmt = count_stmt.where(AuditLog.company_id == company_id)
-    if user_id is not None:
-        stmt = stmt.where(AuditLog.user_id == user_id)
-        count_stmt = count_stmt.where(AuditLog.user_id == user_id)
-    if action:
-        stmt = stmt.where(AuditLog.action == action)
-        count_stmt = count_stmt.where(AuditLog.action == action)
-    total = (await db.execute(count_stmt)).scalar() or 0
-    stmt = stmt.offset(offset).limit(limit)
-    result = await db.execute(stmt)
-    rows = result.all()
-    items = [
-        AuditLogOut(
-            id=log.id,
-            user_id=log.user_id,
-            user_phone=phone,
-            user_name=name,
-            company_id=log.company_id,
-            action=log.action,
-            entity_type=log.entity_type,
-            entity_id=log.entity_id,
-            details=log.details,
-            created_at=log.created_at,
+    """List audit log entries. Optional filters: company_id, user_id, staff_id, action."""
+    try:
+        return await _admin_audit_log_impl(
+            company_id, user_id, staff_id, action, limit, offset, db
         )
-        for log, phone, name in rows
-    ]
-    return {"items": items, "total": total}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Admin audit log failed: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def _admin_audit_log_impl(
+    company_id: int | None,
+    user_id: int | None,
+    staff_id: int | None,
+    action: str | None,
+    limit: int,
+    offset: int,
+    db: AsyncSession,
+):
+    try:
+        stmt = (
+            select(AuditLog, User.phone, User.name, Staff.login)
+            .outerjoin(User, AuditLog.user_id == User.id)
+            .outerjoin(Staff, AuditLog.staff_id == Staff.id)
+            .order_by(AuditLog.created_at.desc())
+        )
+        count_stmt = select(func.count()).select_from(AuditLog)
+        if company_id is not None:
+            stmt = stmt.where(AuditLog.company_id == company_id)
+            count_stmt = count_stmt.where(AuditLog.company_id == company_id)
+        if user_id is not None:
+            stmt = stmt.where(AuditLog.user_id == user_id)
+            count_stmt = count_stmt.where(AuditLog.user_id == user_id)
+        if staff_id is not None:
+            stmt = stmt.where(AuditLog.staff_id == staff_id)
+            count_stmt = count_stmt.where(AuditLog.staff_id == staff_id)
+        if action:
+            stmt = stmt.where(AuditLog.action == action)
+            count_stmt = count_stmt.where(AuditLog.action == action)
+        total = (await db.execute(count_stmt)).scalar() or 0
+        stmt = stmt.offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        rows = result.all()
+        items = [
+            AuditLogOut(
+                id=log.id,
+                user_id=log.user_id,
+                user_phone=phone,
+                user_name=name,
+                staff_id=log.staff_id,
+                staff_login=staff_login,
+                company_id=log.company_id,
+                action=log.action,
+                entity_type=log.entity_type,
+                entity_id=log.entity_id,
+                details=log.details,
+                created_at=log.created_at,
+            )
+            for log, phone, name, staff_login in rows
+        ]
+        return {"items": items, "total": total}
+    except (ProgrammingError, OperationalError, AttributeError) as e:
+        err_msg = str(getattr(getattr(e, "orig", e), "args", [str(e)])) + str(e)
+        if "staff_id" not in err_msg:
+            raise
+        await db.rollback()
+        count_sql = "SELECT COUNT(*) FROM audit_logs a WHERE 1=1"
+        list_sql = """
+            SELECT a.id, a.user_id, a.company_id, a.action, a.entity_type, a.entity_id, a.details, a.created_at,
+                   u.phone, u.name
+            FROM audit_logs a
+            LEFT JOIN users u ON a.user_id = u.id
+            WHERE 1=1
+        """
+        params: dict = {}
+        if company_id is not None:
+            count_sql += " AND a.company_id = :company_id"
+            list_sql += " AND a.company_id = :company_id"
+            params["company_id"] = company_id
+        if user_id is not None:
+            count_sql += " AND a.user_id = :user_id"
+            list_sql += " AND a.user_id = :user_id"
+            params["user_id"] = user_id
+        if action:
+            count_sql += " AND a.action = :action"
+            list_sql += " AND a.action = :action"
+            params["action"] = action
+        list_sql += " ORDER BY a.created_at DESC LIMIT :limit OFFSET :offset"
+        total = (await db.execute(text(count_sql), params)).scalar() or 0
+        list_params = {**params, "limit": limit, "offset": offset}
+        rows = (await db.execute(text(list_sql), list_params)).fetchall()
+        items = [
+            AuditLogOut(
+                id=r.id,
+                user_id=r.user_id,
+                user_phone=r.phone,
+                user_name=r.name,
+                staff_id=None,
+                staff_login=None,
+                company_id=r.company_id,
+                action=r.action,
+                entity_type=r.entity_type,
+                entity_id=r.entity_id,
+                details=r.details,
+                created_at=r.created_at,
+            )
+            for r in rows
+        ]
+        return {"items": items, "total": total}

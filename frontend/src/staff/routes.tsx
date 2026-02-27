@@ -7,6 +7,7 @@ import { StaffOrders } from "./pages/StaffOrders";
 import { StaffOrderDetail } from "./pages/StaffOrderDetail";
 import { StaffVendors } from "./pages/StaffVendors";
 import { StaffUsers } from "./pages/StaffUsers";
+import { StaffUserProfile } from "./pages/StaffUserProfile";
 import { StaffFeedback } from "./pages/StaffFeedback";
 import { StaffFeedbackDetail } from "./pages/StaffFeedbackDetail";
 import { StaffAudit } from "./pages/StaffAudit";
@@ -86,6 +87,7 @@ export function StaffRoutes() {
         <Route path="orders/:orderId" element={<RequireStaffPermission permission="orders.view"><StaffOrderDetail /></RequireStaffPermission>} />
         <Route path="vendors" element={<RequireStaffPermission permission="vendors.view"><StaffVendors /></RequireStaffPermission>} />
         <Route path="users" element={<RequireStaffPermission permission="users.view"><StaffUsers /></RequireStaffPermission>} />
+        <Route path="users/:userId" element={<RequireStaffPermission permission="users.view"><StaffUserProfile /></RequireStaffPermission>} />
         <Route path="feedback" element={<RequireStaffPermission permission="feedback.view"><StaffFeedback /></RequireStaffPermission>} />
         <Route path="feedback/:ticketId" element={<RequireStaffPermission permission="feedback.view"><StaffFeedbackDetail /></RequireStaffPermission>} />
         <Route path="audit" element={<RequireStaffPermission permission="audit.view"><StaffAudit /></RequireStaffPermission>} />

@@ -118,8 +118,13 @@ def upgrade() -> None:
 
     # First staff: Super Admin (role_id=1)
     from passlib.context import CryptContext
-    pwd = os.environ.get("STAFF_DEFAULT_PASSWORD", "admin")
-    login = os.environ.get("STAFF_DEFAULT_LOGIN", "admin")
+    pwd = os.environ.get("STAFF_DEFAULT_PASSWORD")
+    login = os.environ.get("STAFF_DEFAULT_LOGIN")
+    if not login or not pwd:
+        raise RuntimeError(
+            "Environment variables STAFF_DEFAULT_LOGIN and STAFF_DEFAULT_PASSWORD must be set "
+            "before running migration 008 (staff bootstrap)."
+        )
     ctx = CryptContext(schemes=["bcrypt"])
     password_hash = ctx.hash(pwd)
     conn.execute(

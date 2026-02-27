@@ -1,3 +1,8 @@
+import asyncio
+import logging
+import shlex
+import shutil
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
@@ -6,11 +11,13 @@ from sqlalchemy import select, func
 from app.database import get_db
 from app.models.product import Product, ProductStatus
 from app.models.user import User, UserRole
+from app.models.company import Company
 from app.models.audit_log import AuditLog
 from app.models.company_member import CompanyMember, CompanyRole
 from app.dependencies import get_current_vendor, get_current_vendor_owner, get_client_ip
 from app.services.redis_client import invalidate_product_cache
 from app.services.audit import write_audit_log
+from app.services.storage_quota import ensure_storage_quota
 from app.schemas.audit import AuditLogOut
 from app.schemas.team import TeamMemberOut, TeamInviteIn, TeamRoleUpdate
 from app.utils import generate_article_number
@@ -23,6 +30,13 @@ from app.config import settings
 import pandas as pd
 import io
 
+try:
+    import magic  # type: ignore
+except Exception:
+    magic = None
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 MAX_MB = 10
 
@@ -31,6 +45,117 @@ UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads" / "produ
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_IMAGE_MB = getattr(settings, "max_upload_mb", 10)
+EXCEL_MIME_TYPES = {
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+_MAGIC = None
+if magic:
+    try:
+        _MAGIC = magic.Magic(mime=True)
+    except Exception as exc:
+        logger.warning("python-magic not available: %s", exc)
+
+
+def _bytes_to_mb(length: int) -> float:
+    return round(length / (1024 * 1024), 6)
+
+
+def _detect_mime(content: bytes) -> str:
+    if not _MAGIC:
+        raise HTTPException(status_code=500, detail="MIME detector is not configured (python-magic missing).")
+    return _MAGIC.from_buffer(content)
+
+
+def _ensure_allowed_mime(content: bytes, allowed: set[str], label: str) -> str:
+    detected = _detect_mime(content)
+    if detected not in allowed:
+        raise HTTPException(status_code=400, detail=f"Недопустимый тип файла для {label}: {detected}")
+    return detected
+
+
+def _clamav_scan_enabled() -> bool:
+    """True if ClamAV scan is configured (non-empty CLAMAV_SCAN_COMMAND)."""
+    return bool((settings.clamav_scan_command or "").strip())
+
+
+def _clamav_command_args() -> list[str]:
+    command = (settings.clamav_scan_command or "").strip()
+    if not command:
+        raise HTTPException(status_code=503, detail="Антивирус недоступен: не задано CLAMAV_SCAN_COMMAND.")
+    parts = shlex.split(command)
+    if not parts or not shutil.which(parts[0]):
+        raise HTTPException(status_code=503, detail=f"Антивирус недоступен: команда {parts[0] if parts else command} не найдена.")
+    return parts
+
+
+async def _scan_path_with_clamav(path: Path) -> None:
+    args = _clamav_command_args() + [str(path)]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=503, detail="Антивирус недоступен: clamdscan не найден.") from exc
+    stdout, stderr = await proc.communicate()
+    output = ((stdout or b"") + (stderr or b"")).decode(errors="ignore").strip()
+    if proc.returncode == 0:
+        return
+    path.unlink(missing_ok=True)
+    if proc.returncode == 1:
+        logger.warning("ClamAV detected malware: %s", output)
+        raise HTTPException(status_code=400, detail="Файл отклонён антивирусом.")
+    logger.error("ClamAV scan failed (code %s): %s", proc.returncode, output)
+    raise HTTPException(status_code=503, detail="Антивирус недоступен (ошибка проверки).")
+
+
+async def _scan_content_with_clamav(content: bytes, suffix: str) -> None:
+    suffix = suffix if suffix.startswith(".") else f".{suffix}" if suffix else ".tmp"
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp_file.write(content)
+        tmp_file.close()
+        await _scan_path_with_clamav(Path(tmp_file.name))
+    finally:
+        Path(tmp_file.name).unlink(missing_ok=True)
+
+
+async def _reserve_storage_quota(
+    db: AsyncSession,
+    current_user: User,
+    request: Request,
+    file_size_mb: float,
+) -> None:
+    quota = getattr(settings, "vendor_storage_quota_mb", 0)
+    company_id = current_user.company_id
+    if not company_id or quota <= 0:
+        return
+    stmt = select(Company).where(Company.id == company_id).with_for_update()
+    result = await db.execute(stmt)
+    company = result.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=400, detail="Компания не найдена для продавца.")
+    try:
+        new_usage = ensure_storage_quota(company.storage_used_mb or 0.0, quota, file_size_mb)
+    except HTTPException as exc:
+        await write_audit_log(
+            db,
+            user_id=current_user.id,
+            company_id=company_id,
+            action="storage_quota_exceeded",
+            details={
+                "limit_mb": quota,
+                "attempted_file_mb": round(file_size_mb, 4),
+            },
+            ip=get_client_ip(request),
+        )
+        raise exc
+    company.storage_used_mb = new_usage
+    await db.flush()
 
 
 @router.post("/upload-pricelist")
@@ -45,6 +170,21 @@ async def upload_pricelist(
     content = await file.read()
     if len(content) > MAX_MB * 1024 * 1024:
         raise HTTPException(400, f"File too large (max {MAX_MB} MB)")
+    detected_mime = _ensure_allowed_mime(content, EXCEL_MIME_TYPES, "прайс-листа")
+    if _clamav_scan_enabled():
+        try:
+            await _scan_content_with_clamav(content, Path(file.filename or "").suffix.lower() or ".xlsx")
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                await write_audit_log(
+                    db,
+                    user_id=current_user.id,
+                    company_id=current_user.company_id,
+                    action="vendor_upload_blocked",
+                    details={"reason": "malware_detected", "mime": detected_mime},
+                    ip=get_client_ip(request),
+                )
+            raise
     df = pd.read_excel(io.BytesIO(content), header=0)
     sample = df.head(15).to_dict(orient="records")
     sample_rows = []
@@ -116,7 +256,9 @@ async def upload_pricelist(
 
 @router.post("/upload-image")
 async def upload_product_image(
+    request: Request,
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_vendor),
 ):
     """Загрузка фото товара. Возвращает URL для сохранения в product.images."""
@@ -125,16 +267,29 @@ async def upload_product_image(
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_IMAGE_EXTENSIONS:
         raise HTTPException(400, f"Разрешены только изображения: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}")
-    content_type = file.content_type or ""
-    if content_type and content_type not in ALLOWED_IMAGE_CONTENT_TYPES and not content_type.startswith("image/"):
-        raise HTTPException(400, "Файл должен быть изображением")
     content = await file.read()
     if len(content) > MAX_IMAGE_MB * 1024 * 1024:
         raise HTTPException(400, f"Размер файла не более {MAX_IMAGE_MB} МБ")
+    detected_mime = _ensure_allowed_mime(content, ALLOWED_IMAGE_CONTENT_TYPES, "изображения")
+    await _reserve_storage_quota(db, current_user, request, _bytes_to_mb(len(content)))
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     name = f"{uuid4().hex}{ext}"
     path = UPLOADS_DIR / name
     path.write_bytes(content)
+    if _clamav_scan_enabled():
+        try:
+            await _scan_path_with_clamav(path)
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                await write_audit_log(
+                    db,
+                    user_id=current_user.id,
+                    company_id=current_user.company_id,
+                    action="vendor_upload_blocked",
+                    details={"reason": "malware_detected", "mime": detected_mime},
+                    ip=get_client_ip(request),
+                )
+            raise
     # Путь для фронтенда: /uploads/products/xxx (без /api, прокси сам добавит)
     url = f"/uploads/products/{name}"
     return {"url": url}

@@ -15,6 +15,16 @@ class DemoLoginIn(BaseModel):
     password: str
 
 
+class PasswordLoginIn(BaseModel):
+    phone: str = Field(..., min_length=10, max_length=20)
+    password: str
+
+
+class SetPasswordIn(BaseModel):
+    current_password: str | None = None
+    new_password: str
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

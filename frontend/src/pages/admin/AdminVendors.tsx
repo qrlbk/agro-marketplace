@@ -24,6 +24,8 @@ export function AdminVendors() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectConfirm, setRejectConfirm] = useState<{ companyId: number; companyName: string } | null>(null);
 
   const load = () => {
     if (!token) {
@@ -44,12 +46,30 @@ export function AdminVendors() {
 
   const approveVendor = async (companyId: number) => {
     if (!token) return;
+    setError(null);
     setApprovingId(companyId);
     try {
       await request(`/admin/vendors/${companyId}/approve`, { method: "POST", token });
       setPendingVendors((prev) => prev.filter((v) => v.company_id !== companyId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка одобрения");
     } finally {
       setApprovingId(null);
+    }
+  };
+
+  const rejectVendor = async (companyId: number) => {
+    if (!token) return;
+    setError(null);
+    setRejectingId(companyId);
+    setRejectConfirm(null);
+    try {
+      await request(`/admin/vendors/${companyId}/reject`, { method: "POST", token });
+      setPendingVendors((prev) => prev.filter((v) => v.company_id !== companyId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка отклонения");
+    } finally {
+      setRejectingId(null);
     }
   };
 
@@ -91,15 +111,47 @@ export function AdminVendors() {
                     {v.user_phone} · {v.user_name || "—"}
                   </p>
                 </div>
-                <Button
-                  onClick={() => approveVendor(v.company_id)}
-                  loading={approvingId === v.company_id}
-                >
-                  Одобрить
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => approveVendor(v.company_id)}
+                    loading={approvingId === v.company_id}
+                  >
+                    Одобрить
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setRejectConfirm({ companyId: v.company_id, companyName: v.company_name || "—" })}
+                    disabled={!!rejectingId}
+                  >
+                    Отклонить
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {rejectConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Отклонить заявку?</h3>
+            <p className="text-slate-600 mb-4">
+              Поставщик «{rejectConfirm.companyName}» будет отклонён. Вы уверены?
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setRejectConfirm(null)}>
+                Отмена
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => rejectVendor(rejectConfirm.companyId)}
+                loading={rejectingId === rejectConfirm.companyId}
+              >
+                Отклонить
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </PageLayout>

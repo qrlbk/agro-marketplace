@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { request, type User } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
 import { PageLayout } from "../../components/PageLayout";
@@ -9,6 +10,9 @@ const ROLES = ["guest", "user", "farmer", "vendor", "admin"] as const;
 export function AdminUsers() {
   const { token } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const limit = 50;
   const [roleFilter, setRoleFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,12 +24,18 @@ export function AdminUsers() {
     }
     setLoading(true);
     setError(null);
-    const url = roleFilter ? `/admin/users?role=${encodeURIComponent(roleFilter)}` : "/admin/users";
-    request<User[]>(url, { token })
-      .then(setUsers)
+    const params = new URLSearchParams();
+    if (roleFilter) params.set("role", roleFilter);
+    params.set("limit", String(limit));
+    params.set("offset", String(page * limit));
+    request<{ items: User[]; total: number }>(`/admin/users?${params}`, { token })
+      .then((data) => {
+        setUsers(data.items);
+        setTotal(data.total);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Ошибка загрузки"))
       .finally(() => setLoading(false));
-  }, [token, roleFilter]);
+  }, [token, roleFilter, page]);
 
   if (loading) {
     return (
@@ -84,7 +94,11 @@ export function AdminUsers() {
           <tbody>
             {users.map((u) => (
               <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="p-3">{u.id}</td>
+                <td className="p-3">
+                  <Link to={`/admin/users/${u.id}`} className="font-medium text-emerald-800 hover:underline">
+                    {u.id}
+                  </Link>
+                </td>
                 <td className="p-3">{u.phone}</td>
                 <td className="p-3">{u.name ?? "—"}</td>
                 <td className="p-3 font-medium text-emerald-800">{u.role}</td>
@@ -106,6 +120,31 @@ export function AdminUsers() {
           <p className="p-6 text-slate-600 text-center">Пользователей не найдено.</p>
         )}
       </div>
+      {total > 0 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
+          <span>
+            Показано {page * limit + 1}–{Math.min(page * limit + limit, total)} из {total}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-50"
+            >
+              Назад
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={(page + 1) * limit >= total}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-50"
+            >
+              Вперёд
+            </button>
+          </div>
+        </div>
+      )}
     </PageLayout>
   );
 }

@@ -40,7 +40,7 @@ async def tree_categories(db: AsyncSession = Depends(get_db)):
         return _build_tree(categories)
     except Exception as e:
         logger.exception("Categories tree failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("", response_model=CategoryOut)

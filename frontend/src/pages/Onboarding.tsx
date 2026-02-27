@@ -153,7 +153,7 @@ export function Onboarding() {
 
   return (
     <PageLayout>
-      <div className="max-w-lg mx-auto">
+      <div className="max-w-lg mx-auto pb-4">
         {step === "choose" && (
           <div className="bg-white border border-gray-200 rounded-md shadow-sm p-6">
             <h1 className="text-xl font-bold text-slate-900 mb-2">Как вы планируете использовать платформу?</h1>

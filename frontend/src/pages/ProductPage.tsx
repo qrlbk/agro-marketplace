@@ -220,13 +220,14 @@ export function ProductPage() {
         <span className="text-slate-900 font-medium">{product.name}</span>
       </nav>
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden max-w-5xl animate-fade-in">
-        <div className="p-6 lg:p-8 flex flex-col lg:grid lg:grid-cols-2 gap-8 lg:gap-10">
+        <div className="p-4 sm:p-6 lg:p-8 flex flex-col lg:grid lg:grid-cols-2 gap-6 lg:gap-10">
           <div className="w-full">
             {imageUrl ? (
               <div className="w-full aspect-square bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl overflow-hidden group border border-gray-100">
                 <img
                   src={imageUrl}
                   alt={product.name}
+                  loading="lazy"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
@@ -237,8 +238,8 @@ export function ProductPage() {
             )}
           </div>
           <div className="flex-1 min-w-0 flex flex-col">
-            <p className="text-lg font-mono font-bold text-slate-700">Артикул: {product.article_number}</p>
-            <h1 className="text-3xl font-extrabold text-slate-900 mt-2">{product.name}</h1>
+            <p className="text-base sm:text-lg font-mono font-bold text-slate-700 break-all">Артикул: {product.article_number}</p>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">{product.name}</h1>
             <p className="mt-4 text-slate-900">
               <span className="text-3xl font-extrabold tracking-tight text-emerald-900">{Number(product.price).toLocaleString("ru-KZ")} ₸</span>
               <span className="text-slate-600 font-normal ml-2">

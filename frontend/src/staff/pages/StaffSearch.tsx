@@ -92,7 +92,7 @@ export function StaffSearch() {
               {result.users.map((u) => (
                 <li key={u.id}>
                   {hasPermission("users.view") ? (
-                    <Link to={`/staff/users?phone=${encodeURIComponent(u.phone)}`} className="text-emerald-800 hover:underline">
+                    <Link to={`/staff/users/${u.id}`} className="text-emerald-800 hover:underline">
                       {u.phone}
                       {u.name && ` — ${u.name}`}
                     </Link>

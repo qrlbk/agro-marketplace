@@ -19,7 +19,7 @@ def make_token():
     """Factory fixture: returns a function that builds a valid JWT for testing."""
     def _make(user_id: int, role: UserRole, phone: str) -> str:
         expire = datetime.utcnow() + timedelta(minutes=settings.jwt_access_expire_minutes)
-        payload = {"sub": str(user_id), "role": role.value, "phone": phone, "exp": expire}
+        payload = {"sub": str(user_id), "role": role.value, "phone": phone, "exp": expire, "iss": "marketplace"}
         return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return _make
 

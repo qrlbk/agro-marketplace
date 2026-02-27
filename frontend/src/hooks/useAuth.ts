@@ -3,13 +3,39 @@ import { request, User } from "../api/client";
 
 const TOKEN_KEY = "agro_token";
 
+/** Проверка без верификации подписи (только exp). Не использовать для безопасности. */
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? "{}"));
+    const exp = payload.exp as number | undefined;
+    if (!exp) return false;
+    return Date.now() >= exp * 1000;
+  } catch {
+    return true;
+  }
+}
+
 export function useAuth() {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => {
+    const t = localStorage.getItem(TOKEN_KEY);
+    if (t && isTokenExpired(t)) {
+      localStorage.removeItem(TOKEN_KEY);
+      return null;
+    }
+    return t;
+  });
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadUser = useCallback(async () => {
     if (!token) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+    if (isTokenExpired(token)) {
+      setToken(null);
+      localStorage.removeItem(TOKEN_KEY);
       setUser(null);
       setLoading(false);
       return;

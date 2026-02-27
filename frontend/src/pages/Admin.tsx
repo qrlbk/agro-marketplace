@@ -39,7 +39,7 @@ export function Admin() {
     setLoading(true);
     setError(null);
     Promise.all([
-      request<User[]>("/admin/users", { token }),
+      request<{ items: User[]; total: number }>("/admin/users?limit=100&offset=0", { token }),
       request<{ total_orders: number; total_revenue: number; by_status: Record<string, number> }>(
         "/admin/analytics",
         { token }
@@ -47,7 +47,7 @@ export function Admin() {
       request<PendingVendor[]>("/admin/vendors/pending", { token }).catch(() => []),
     ])
       .then(([usersData, analyticsData, pendingData]) => {
-        setUsers(usersData);
+        setUsers(usersData.items ?? []);
         setAnalytics(analyticsData);
         setPendingVendors(Array.isArray(pendingData) ? pendingData : []);
       })
@@ -63,6 +63,8 @@ export function Admin() {
     try {
       await request(`/admin/vendors/${companyId}/approve`, { method: "POST", token });
       setPendingVendors((prev) => prev.filter((v) => v.company_id !== companyId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось одобрить поставщика");
     } finally {
       setApprovingId(null);
     }

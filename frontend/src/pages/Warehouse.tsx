@@ -94,7 +94,9 @@ export function Warehouse() {
         <WarehouseIcon className="w-8 h-8 text-emerald-700" aria-hidden />
         Склад
       </h1>
-      <p className="text-slate-600 mb-6">Остатки по вашим товарам. Обновляйте остатки в разделе «Мои товары» или через загрузку прайс-листа.</p>
+      <p className="text-slate-600 mb-4 sm:mb-6 text-sm sm:text-base">
+        Остатки по вашим товарам. Обновляйте остатки в разделе «Мои товары» или через загрузку прайс-листа.
+      </p>
 
       {products.length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center">
@@ -130,7 +132,7 @@ export function Warehouse() {
 
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse text-xs sm:text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="py-3 px-4 font-semibold text-slate-700">Артикул</th>

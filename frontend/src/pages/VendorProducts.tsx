@@ -177,7 +177,9 @@ export function VendorProducts() {
   return (
     <PageLayout>
       <h1>Мои товары</h1>
-      <p className="text-slate-600 mb-6">Добавляйте фото товаров — они отображаются в каталоге и на странице товара.</p>
+      <p className="text-slate-600 mb-4 sm:mb-6 text-sm sm:text-base">
+        Добавляйте фото товаров — они отображаются в каталоге и на странице товара.
+      </p>
 
       {error && (
         <div className="mb-4 p-3 rounded-md bg-red-50 text-red-600 text-sm font-medium" role="alert">
@@ -185,13 +187,13 @@ export function VendorProducts() {
         </div>
       )}
 
-      <div className="mb-6">
+      <div className="mb-4 sm:mb-6">
         <Button onClick={startAdd} variant="secondary">
           Добавить товар
         </Button>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-md shadow-sm p-6 mb-6">
+      <div className="bg-white border border-gray-200 rounded-md shadow-sm p-4 sm:p-6 mb-6">
         <h2 className="text-lg font-bold text-slate-900 mb-4">
           {editingId ? "Редактировать товар" : "Новый товар"}
         </h2>

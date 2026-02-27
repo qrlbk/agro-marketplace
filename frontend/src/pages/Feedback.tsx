@@ -94,9 +94,9 @@ export function Feedback() {
   if (sent) {
     return (
       <PageLayout>
-        <div className="max-w-xl mx-auto py-8 text-center">
-          <h1 className="text-2xl font-bold text-emerald-800 mb-4">Обратная связь</h1>
-          <p className="text-slate-700 text-lg">
+        <div className="max-w-xl mx-auto py-6 sm:py-8 text-center">
+          <h1 className="text-xl sm:text-2xl font-bold text-emerald-800 mb-4">Обратная связь</h1>
+          <p className="text-slate-700 text-base sm:text-lg">
             Спасибо, мы ответим в уведомлениях{contactPhone.trim() ? " и по телефону, если указан" : ""}.
           </p>
         </div>
@@ -106,8 +106,8 @@ export function Feedback() {
 
   return (
     <PageLayout>
-      <div className="max-w-xl mx-auto py-4">
-        <h1 className="text-2xl font-bold text-emerald-800 mb-6">Написать в поддержку</h1>
+      <div className="max-w-xl mx-auto py-4 pb-6">
+        <h1 className="text-xl sm:text-2xl font-bold text-emerald-800 mb-4 sm:mb-6">Написать в поддержку</h1>
         {(SUPPORT_PHONE || SUPPORT_EMAIL) && (
           <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
             <p className="text-sm font-medium text-slate-700 mb-2">Связаться с нами:</p>

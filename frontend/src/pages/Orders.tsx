@@ -36,9 +36,9 @@ export function Orders() {
     return (
       <PageLayout>
         <h1>Мои заказы</h1>
-        <div className="animate-pulse space-y-4">
-          <div className="h-24 bg-gray-200 rounded-md" />
-          <div className="h-24 bg-gray-200 rounded-md" />
+        <div className="animate-pulse space-y-3 sm:space-y-4">
+          <div className="h-20 sm:h-24 bg-gray-200 rounded-md" />
+          <div className="h-20 sm:h-24 bg-gray-200 rounded-md" />
         </div>
       </PageLayout>
     );
@@ -66,10 +66,10 @@ export function Orders() {
     return (
       <PageLayout>
         <h1>Мои заказы</h1>
-        <div className="bg-white border border-gray-200 rounded-md shadow-sm p-12 text-center">
-          <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" aria-hidden />
-          <h2 className="text-xl font-bold text-slate-900 mb-2">Заказов пока нет</h2>
-          <p className="text-slate-600 mb-6">Ваши заказы появятся здесь после оформления.</p>
+        <div className="bg-white border border-gray-200 rounded-md shadow-sm p-8 sm:p-12 text-center">
+          <Package className="h-14 w-14 sm:h-16 sm:w-16 text-slate-300 mx-auto mb-4" aria-hidden />
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-2">Заказов пока нет</h2>
+          <p className="text-slate-600 mb-6 text-sm sm:text-base">Ваши заказы появятся здесь после оформления.</p>
           <Link
             to="/catalog"
             className="inline-flex items-center justify-center min-h-12 px-6 rounded-md bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-800 focus-visible:ring-offset-2"

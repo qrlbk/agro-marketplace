@@ -11,6 +11,7 @@ from app.models.order import Order, OrderStatus, OrderItem
 from app.models.product_review import ProductReview
 from app.models.notification import Notification
 from app.models.feedback import FeedbackTicket, FeedbackStatus
+from app.models.reply_template import ReplyTemplate
 from app.models.staff import Permission, Role, Staff
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "Notification",
     "FeedbackTicket",
     "FeedbackStatus",
+    "ReplyTemplate",
     "Permission",
     "Role",
     "Staff",

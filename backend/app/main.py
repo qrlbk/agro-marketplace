@@ -1,12 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from app.config import settings
+from app.config import settings, validate_secrets
 from app.database import get_db
 from app.routers import auth, products, machines, garage, cart, checkout, orders, vendor_upload, vendors, recommendations, webhooks, admin, categories, search, chat, notifications, feedback, staff, regions
 
@@ -21,18 +21,15 @@ if not CORS_ALLOWED_ORIGINS:
     CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"]
 
 
-def _warn_weak_jwt_secret() -> None:
-    secret = (settings.jwt_secret or "").strip()
-    if not secret or secret in ("change-me", "change-me-to-random-secret-in-production"):
-        logger.warning(
-            "JWT_SECRET is default or empty. Set a strong secret in production (e.g. openssl rand -hex 32)."
-        )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _warn_weak_jwt_secret()
+    validate_secrets()
     yield
+    try:
+        from app.services.llm_client import close_openai_client
+        await close_openai_client()
+    except Exception as e:
+        logger.warning("Closing OpenAI client: %s", e)
 
 
 app = FastAPI(title="Agro Marketplace API", version="0.1.0", docs_url="/docs", redoc_url="/redoc", lifespan=lifespan)
@@ -101,14 +98,31 @@ app.include_router(staff.router, prefix="/staff", tags=["staff"])
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_ROOT)), name="uploads")
 
 
+def _health_response(payload: dict, status_code: int = 200) -> JSONResponse:
+    response = JSONResponse(status_code=status_code, content=payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _require_health_api_key(request: Request) -> None:
+    api_key = (settings.health_api_key or "").strip()
+    if not api_key:
+        return
+    provided = request.headers.get("x-health-api-key")
+    if provided != api_key:
+        raise HTTPException(status_code=401, detail="Health check unauthorized")
+
+
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(request: Request):
+    _require_health_api_key(request)
+    return _health_response({"status": "ok"})
 
 
 @app.get("/health/ready")
-async def health_ready():
+async def health_ready(request: Request):
     """Readiness: PostgreSQL and Redis must be reachable. Returns 503 if not (for orchestrator/load balancer)."""
+    _require_health_api_key(request)
     from sqlalchemy import text
     from app.database import engine
     from app.services.redis_client import get_redis
@@ -118,25 +132,25 @@ async def health_ready():
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
     except Exception as e:
-        errors.append(f"postgres: {e}")
+        logger.error("Health check postgres failed: %s", e)
+        errors.append("postgres unavailable")
 
     try:
         r = await get_redis()
         await r.ping()
     except Exception as e:
-        errors.append(f"redis: {e}")
+        logger.error("Health check redis failed: %s", e)
+        errors.append("redis unavailable")
 
     if errors:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "not_ready", "errors": errors},
-        )
-    return {"status": "ready"}
+        return _health_response({"status": "not_ready", "errors": errors}, status_code=503)
+    return _health_response({"status": "ready"})
 
 
 @app.get("/health/openai")
-async def health_openai():
-    """Проверка OpenAI: подхватился ли ключ и отвечает ли API. Показывает причину ошибки."""
+async def health_openai(request: Request):
+    """Проверка OpenAI: подхватился ли ключ и отвечает ли API. Требует x-health-api-key при настройке HEALTH_API_KEY."""
+    _require_health_api_key(request)
     try:
         from app.config import settings
         from app.services.llm_client import get_openai_client
@@ -157,4 +171,5 @@ async def health_openai():
         text = (resp.choices[0].message.content or "").strip()
         return {"key_set": True, "ok": True, "reply": text}
     except Exception as e:
-        return {"key_set": True, "ok": False, "error": str(e)}
+        logger.exception("Health OpenAI check failed: %s", e)
+        return {"key_set": True, "ok": False, "error": "Service temporarily unavailable"}

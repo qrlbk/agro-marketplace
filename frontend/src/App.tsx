@@ -34,6 +34,7 @@ import { StaffRoutes } from "./staff/routes";
 import { AdminLayout } from "./components/AdminLayout";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminUsers } from "./pages/admin/AdminUsers";
+import { AdminUserProfile } from "./pages/admin/AdminUserProfile";
 import { AdminOrders } from "./pages/admin/AdminOrders";
 import { AdminOrderDetail } from "./pages/admin/AdminOrderDetail";
 import { AdminVendors } from "./pages/admin/AdminVendors";
@@ -90,7 +91,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   return (
     <NotificationsCountProvider refresh={refreshNotificationsCount}>
       <ChatControlProvider openChat={openChat}>
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50 flex flex-col">
           <Header
             searchQuery={searchQuery}
             onSearchChange={onSearchChange}
@@ -102,7 +103,9 @@ function Layout({ children }: { children: React.ReactNode }) {
             onLogout={logout}
             onOpenChat={openChat}
           />
-          <main className="p-0 sm:p-4 sm:p-6">{children}</main>
+          <main className="flex-1 pb-20 pt-0 sm:pt-4 sm:pb-6">
+            <div className="page-container">{children}</div>
+          </main>
           <ChatAssistant isOpen={chatOpen} onClose={closeChat} />
         </div>
       </ChatControlProvider>
@@ -146,6 +149,7 @@ export default function App() {
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="dashboard" element={<AdminDashboard />} />
           <Route path="users" element={<AdminUsers />} />
+          <Route path="users/:userId" element={<AdminUserProfile />} />
           <Route path="orders" element={<AdminOrders />} />
           <Route path="orders/:orderId" element={<AdminOrderDetail />} />
           <Route path="vendors" element={<AdminVendors />} />

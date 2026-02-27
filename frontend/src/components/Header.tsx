@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, ShoppingCart, Sprout, Bell, Menu as MenuIcon, X, ChevronDown, User as UserIcon, Bot } from "lucide-react";
+import { Search, ShoppingCart, Sprout, Bell, Menu as MenuIcon, X, ChevronDown, User as UserIcon, Bot, Home, ListOrdered } from "lucide-react";
 import { Menu, Transition } from "@headlessui/react";
 import { motion } from "framer-motion";
 import type { User } from "../api/client";
@@ -72,8 +72,8 @@ export function Header({
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-green-100 shadow-sm" role="banner">
-      <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" aria-label="Основная навигация">
-        <div className="flex justify-between h-16 items-center gap-4">
+      <nav className="page-container" aria-label="Основная навигация">
+        <div className="flex justify-between h-14 sm:h-16 items-center gap-3 sm:gap-4">
           
           {/* Logo & Mobile Menu Button */}
           <div className="flex items-center gap-4">
@@ -102,10 +102,10 @@ export function Header({
           {/* Search Bar (Desktop) */}
           <form
             onSubmit={handleSearchSubmit}
-            className="hidden lg:flex flex-1 max-w-xl mx-4"
+            className="hidden lg:flex flex-1 min-w-[180px] max-w-xl mx-4"
             role="search"
           >
-            <div className="relative w-full">
+            <div className="relative w-full min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" aria-hidden />
               <input
                 type="search"
@@ -113,7 +113,7 @@ export function Header({
                 placeholder="Поиск по артикулу или названию…"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                className="w-full min-h-10 pl-10 pr-4 py-2 rounded-full border-2 border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 focus:bg-white transition-all"
+                className="w-full min-w-0 min-h-10 pl-10 pr-4 py-2 rounded-full border-2 border-gray-200 bg-gray-50 text-gray-900 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 focus:bg-white transition-all"
               />
             </div>
           </form>
@@ -314,7 +314,7 @@ export function Header({
           </div>
           
           {/* Mobile Right Icons */}
-          <div className="flex lg:hidden items-center gap-2">
+          <div className="flex lg:hidden items-center gap-1.5">
             {isVendorOrAdmin && (
               <Link to="/notifications" className="relative p-2 text-gray-500">
                 <Bell className="h-6 w-6" />
@@ -359,7 +359,7 @@ export function Header({
 
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex">
+        <div className="lg:hidden fixed inset-0 z-50 flex">
           {/* Backdrop */}
           <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
           
@@ -450,6 +450,56 @@ export function Header({
           </div>
         </div>
       )}
+      {/* Mobile Bottom Navigation */}
+      <nav
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200"
+        aria-label="Быстрая навигация по разделам"
+      >
+        <div className="page-container">
+          <div className="flex justify-between items-stretch py-1.5">
+            <Link
+              to="/"
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium text-gray-600 hover:text-green-700 py-1"
+            >
+              <Home className="h-5 w-5" aria-hidden />
+              <span>Главная</span>
+            </Link>
+            <Link
+              to="/catalog"
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium text-gray-600 hover:text-green-700 py-1"
+            >
+              <ListOrdered className="h-5 w-5" aria-hidden />
+              <span>Каталог</span>
+            </Link>
+            {user && (
+              <Link
+                to="/garage"
+                className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium text-gray-600 hover:text-green-700 py-1"
+              >
+                <Sprout className="h-5 w-5" aria-hidden />
+                <span>Гараж</span>
+              </Link>
+            )}
+            {user ? (
+              <Link
+                to="/orders"
+                className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium text-gray-600 hover:text-green-700 py-1"
+              >
+                <ShoppingCart className="h-5 w-5" aria-hidden />
+                <span>Заказы</span>
+              </Link>
+            ) : (
+              <Link
+                to="/login"
+                className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium text-gray-600 hover:text-green-700 py-1"
+              >
+                <UserIcon className="h-5 w-5" aria-hidden />
+                <span>Войти</span>
+              </Link>
+            )}
+          </div>
+        </div>
+      </nav>
     </header>
   );
 }

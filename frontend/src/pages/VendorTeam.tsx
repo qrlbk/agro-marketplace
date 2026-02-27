@@ -111,7 +111,7 @@ export function VendorTeam() {
           <Users className="w-8 h-8 text-emerald-700" aria-hidden />
           Сотрудники
         </h1>
-        <div className="animate-pulse h-64 bg-gray-200 rounded-md" />
+        <div className="mt-4 animate-pulse h-48 sm:h-64 bg-gray-200 rounded-md" />
       </PageLayout>
     );
   }
@@ -200,7 +200,7 @@ export function VendorTeam() {
       )}
 
       <div className="rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-4 py-3 font-semibold text-slate-900">Телефон</th>

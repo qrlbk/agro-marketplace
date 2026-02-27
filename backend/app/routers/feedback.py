@@ -8,6 +8,7 @@ from app.models.order import Order
 from app.models.product import Product
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.dependencies import get_current_user_optional
+from app.utils.sanitize import sanitize_text, sanitize_text_required
 
 router = APIRouter()
 
@@ -42,11 +43,20 @@ async def create_feedback(
         if product is None:
             raise HTTPException(400, "Товар не найден.")
         product_id = product.id
+    subject = sanitize_text_required(body.subject, max_length=255)
+    if not subject:
+        raise HTTPException(400, "Тема обращения обязательна.")
+    message = sanitize_text_required(body.message, max_length=50000)
+    if not message:
+        raise HTTPException(400, "Текст обращения обязателен.")
+    contact_phone = sanitize_text(body.contact_phone, max_length=20) or (
+        (current_user.phone if current_user else None)
+    )
     ticket = FeedbackTicket(
         user_id=current_user.id if current_user else None,
-        subject=body.subject,
-        message=body.message,
-        contact_phone=body.contact_phone or (current_user.phone if current_user else None),
+        subject=subject,
+        message=message,
+        contact_phone=contact_phone,
         status=FeedbackStatus.open,
         order_id=order_id,
         product_id=product_id,

@@ -7,6 +7,7 @@ class ProfileUpdateIn(BaseModel):
 
     name: str | None = Field(None, max_length=255)
     region: str | None = Field(None, max_length=255)
+    chat_storage_opt_in: bool | None = None
 
 
 class UserOut(BaseModel):
@@ -19,6 +20,8 @@ class UserOut(BaseModel):
     company_details: dict | None
     company_status: str | None = None  # "pending_approval" | "approved" for vendor
     company_role: str | None = None  # "owner" | "manager" | "warehouse" | "sales" for vendor
+    chat_storage_opt_in: bool
+    has_password: bool
 
     class Config:
         from_attributes = True

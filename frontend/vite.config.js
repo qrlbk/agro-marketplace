@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -7,6 +8,7 @@ export default defineConfig({
         alias: { "@": path.resolve(__dirname, "src") },
     },
     server: {
+        host: "0.0.0.0",
         port: 3001,
         proxy: {
             "/api": {
@@ -15,5 +17,12 @@ export default defineConfig({
                 rewrite: function (path) { return (path.replace(/^\/api/, "") || "/"); },
             },
         },
+    },
+    test: {
+        environment: "jsdom",
+        globals: true,
+        include: ["src/**/*.{test,spec}.{ts,tsx}"],
+        setupFiles: ["src/test/setup.ts"],
+        testTimeout: 5000,
     },
 });

@@ -1,31 +1,10 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import {
-  LayoutDashboard,
-  Users,
-  ShoppingBag,
-  Truck,
-  MessageSquare,
-  FileText,
-  Search,
-  UserCog,
-  Shield,
-  LogOut,
-  User,
-} from "lucide-react";
+import { Search, LogOut, User } from "lucide-react";
 import { useStaffAuth } from "../context/StaffAuthContext";
+import { getStaffNavItems } from "../../backoffice/navConfig";
 
-const NAV_ITEMS: { to: string; label: string; permission: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { to: "/staff/dashboard", label: "Дашборд", permission: "dashboard.view", icon: LayoutDashboard },
-  { to: "/staff/orders", label: "Заказы", permission: "orders.view", icon: ShoppingBag },
-  { to: "/staff/vendors", label: "Поставщики", permission: "vendors.view", icon: Truck },
-  { to: "/staff/users", label: "Пользователи", permission: "users.view", icon: Users },
-  { to: "/staff/feedback", label: "Обращения", permission: "feedback.view", icon: MessageSquare },
-  { to: "/staff/audit", label: "Журнал действий", permission: "audit.view", icon: FileText },
-  { to: "/staff/search", label: "Поиск", permission: "search.view", icon: Search },
-  { to: "/staff/employees", label: "Сотрудники", permission: "staff.manage", icon: UserCog },
-  { to: "/staff/roles", label: "Роли", permission: "roles.manage", icon: Shield },
-];
+const basePath = "/staff";
 
 export function StaffLayout() {
   const { staff, hasPermission, logout } = useStaffAuth();
@@ -33,7 +12,11 @@ export function StaffLayout() {
   const [searchQ, setSearchQ] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
 
-  const navItems = NAV_ITEMS.filter((item) => hasPermission(item.permission));
+  const navItems = getStaffNavItems(hasPermission).map((item) => ({
+    to: basePath + item.path,
+    label: item.label,
+    icon: item.icon,
+  }));
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,8 +29,8 @@ export function StaffLayout() {
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50">
       <aside className="lg:w-56 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 bg-white">
-        <div className="p-4 border-b border-gray-200">
-          <NavLink to="/staff/dashboard" className="text-lg font-bold text-emerald-800">
+        <div className="p-3 sm:p-4 border-b border-gray-200">
+          <NavLink to="/staff/dashboard" className="text-base sm:text-lg font-bold text-emerald-800">
             Agro Staff
           </NavLink>
         </div>
@@ -124,7 +107,7 @@ export function StaffLayout() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 lg:p-6 overflow-auto">
+        <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto">
           <div className="max-w-6xl mx-auto">
             <Outlet />
           </div>

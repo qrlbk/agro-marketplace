@@ -62,10 +62,10 @@ export function VendorUpload() {
   return (
     <PageLayout>
       <h1>Загрузка прайс-листа</h1>
-      <p className="text-slate-600 mb-6">
+      <p className="text-slate-600 mb-4 sm:mb-6 text-sm sm:text-base">
         Загрузите Excel-файл с колонками: артикул (или код), наименование, цена, количество. Система сама определит соответствие колонок.
       </p>
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 max-w-2xl">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 sm:p-6 max-w-2xl">
         <label className="block text-sm font-semibold text-slate-700 mb-2">
           Файл (.xlsx или .xls)
         </label>

@@ -61,7 +61,10 @@ export async function uploadFile<T = unknown>(path: string, file: File, token: s
 
 /** Загрузить фото товара. Возвращает URL для сохранения в product.images. */
 export async function uploadProductImage(file: File, token: string): Promise<string> {
-  const data = await uploadFile<{ url: string }>("/vendor/upload-image", file, token);
+  const data = await uploadFile<{ url?: string | null }>("/vendor/upload-image", file, token);
+  if (data == null || typeof data.url !== "string" || data.url === "") {
+    throw new Error("Сервер не вернул URL изображения");
+  }
   return data.url;
 }
 
@@ -75,6 +78,13 @@ export interface User {
   company_details: Record<string, unknown> | null;
   company_status?: string | null;
   company_role?: string | null; // "owner" | "manager" | "warehouse" | "sales" for vendor
+  chat_storage_opt_in?: boolean;
+  has_password?: boolean;
+}
+
+export interface TokenOut {
+  access_token: string;
+  token_type: string;
 }
 
 export interface BinLookupResult {
@@ -118,11 +128,30 @@ export function postOnboarding(body: OnboardingBody, token: string): Promise<Use
 export interface ProfileUpdateBody {
   name?: string | null;
   region?: string | null;
+  chat_storage_opt_in?: boolean | null;
 }
 
 export function patchAuthMe(body: ProfileUpdateBody, token: string): Promise<User> {
   return request<User>("/auth/me", {
     method: "PATCH",
+    body: JSON.stringify(body),
+    token,
+  });
+}
+
+export function loginWithPassword(phone: string, password: string): Promise<TokenOut> {
+  return request<TokenOut>("/auth/login-password", {
+    method: "POST",
+    body: JSON.stringify({ phone, password }),
+  });
+}
+
+export function setUserPassword(
+  token: string,
+  body: { current_password?: string | null; new_password: string }
+): Promise<{ message: string }> {
+  return request<{ message: string }>("/auth/set-password", {
+    method: "POST",
     body: JSON.stringify(body),
     token,
   });
@@ -404,11 +433,49 @@ export function sendChatMessage(
   });
 }
 
+/** GET /chat/sessions — list current user's chat sessions (auth required). */
+export interface ChatSessionItem {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getChatSessions(token: string): Promise<ChatSessionItem[]> {
+  return request<ChatSessionItem[]>("/chat/sessions", { token });
+}
+
+/** GET /chat/sessions/:id/messages — get messages for a session (auth required). */
+export interface ChatSessionMessage {
+  role: string;
+  content: string;
+  suggested_catalog_url?: string | null;
+}
+
+export function getChatSessionMessages(
+  sessionId: number,
+  token: string
+): Promise<ChatSessionMessage[]> {
+  return request<ChatSessionMessage[]>(`/chat/sessions/${sessionId}/messages`, { token });
+}
+
+/** POST /chat/feedback — record thumbs up/down for a chat message. */
+export function sendChatFeedback(
+  messageId: string,
+  isPositive: boolean,
+  token?: string | null
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>("/chat/feedback", {
+    method: "POST",
+    body: JSON.stringify({ message_id: messageId, is_positive: isPositive }),
+    ...(token ? { token } : {}),
+  });
+}
+
 const CHAT_STREAM_TIMEOUT_MS = 60000;
 
 export interface ChatStreamCallbacks {
   onChunk: (content: string) => void;
-  onDone: (suggestedCatalogUrl: string | null) => void;
+  onDone: (suggestedCatalogUrl: string | null, suggestedFollowUps?: string[]) => void;
   onError: (message: string) => void;
 }
 
@@ -447,7 +514,7 @@ export function sendChatMessageStream(
       }
       const reader = res.body?.getReader();
       if (!reader) {
-        callbacks.onDone(null);
+        callbacks.onDone(null, undefined);
         return;
       }
       const decoder = new TextDecoder();
@@ -467,10 +534,14 @@ export function sendChatMessageStream(
                 content?: string;
                 done?: boolean;
                 suggested_catalog_url?: string | null;
+                suggested_follow_ups?: string[];
               };
               if (data.content != null) callbacks.onChunk(data.content);
               if (data.done) {
-                callbacks.onDone(data.suggested_catalog_url ?? null);
+                callbacks.onDone(
+                  data.suggested_catalog_url ?? null,
+                  data.suggested_follow_ups
+                );
                 return;
               }
             } catch {
@@ -478,7 +549,7 @@ export function sendChatMessageStream(
             }
           }
         }
-        callbacks.onDone(null);
+        callbacks.onDone(null, undefined);
       } catch (e) {
         if ((e as Error).name === "AbortError") {
           callbacks.onError("Запрос отменён.");
@@ -559,6 +630,10 @@ export function getAdminSearch(q: string, token: string): Promise<AdminSearchRes
   return request<AdminSearchResult>(`/admin/search?${params}`, { token });
 }
 
+export function getAdminUser(userId: number, token: string): Promise<User> {
+  return request<User>(`/admin/users/${userId}`, { token });
+}
+
 export function getAdminOrders(
   token: string,
   params?: { status?: string; order_number?: string; user_id?: number; vendor_id?: number; limit?: number; offset?: number }
@@ -578,6 +653,16 @@ export function getAdminOrder(orderId: number, token: string): Promise<AdminOrde
   return request<AdminOrderOut>(`/admin/orders/${orderId}`, { token });
 }
 
+export interface FeedbackMessageOut {
+  id: number;
+  ticket_id: number;
+  sender_type: string;
+  sender_user_id: number | null;
+  sender_staff_id: number | null;
+  message: string;
+  created_at: string;
+}
+
 export interface FeedbackTicketAdminOut {
   id: number;
   user_id: number | null;
@@ -587,6 +672,10 @@ export interface FeedbackTicketAdminOut {
   message: string;
   contact_phone: string | null;
   status: string;
+  priority: string;
+  category: string | null;
+  assigned_to_id: number | null;
+  assigned_to_name: string | null;
   admin_notes: string | null;
   order_id: number | null;
   order_number: string | null;
@@ -594,18 +683,42 @@ export interface FeedbackTicketAdminOut {
   product_name: string | null;
   created_at: string;
   updated_at: string;
+  messages?: FeedbackMessageOut[];
+  overdue?: boolean;
+}
+
+export interface ReplyTemplateOut {
+  id: number;
+  name: string;
+  body: string;
 }
 
 export function getAdminFeedback(
   token: string,
-  params?: { status?: string; limit?: number; offset?: number }
-): Promise<FeedbackTicketAdminOut[]> {
+  params?: {
+    status?: string;
+    user_id?: number;
+    assigned_to_me?: boolean;
+    overdue?: boolean;
+    unanswered?: boolean;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{ items: FeedbackTicketAdminOut[]; total: number }> {
   const search = new URLSearchParams();
   if (params?.status) search.set("status", params.status);
+  if (params?.user_id != null) search.set("user_id", String(params.user_id));
+  if (params?.assigned_to_me) search.set("assigned_to_me", "true");
+  if (params?.overdue) search.set("overdue", "true");
+  if (params?.unanswered) search.set("unanswered", "true");
   if (params?.limit != null) search.set("limit", String(params.limit));
   if (params?.offset != null) search.set("offset", String(params.offset));
   const q = search.toString();
-  return request<FeedbackTicketAdminOut[]>(`/admin/feedback${q ? `?${q}` : ""}`, { token });
+  return request<{ items: FeedbackTicketAdminOut[]; total: number }>(`/admin/feedback${q ? `?${q}` : ""}`, { token });
+}
+
+export function getAdminReplyTemplates(token: string): Promise<ReplyTemplateOut[]> {
+  return request<ReplyTemplateOut[]>("/admin/feedback/reply-templates", { token });
 }
 
 export function getAdminFeedbackTicket(ticketId: number, token: string): Promise<FeedbackTicketAdminOut> {
@@ -614,7 +727,14 @@ export function getAdminFeedbackTicket(ticketId: number, token: string): Promise
 
 export function patchAdminFeedback(
   ticketId: number,
-  body: { status?: string; admin_notes?: string | null; send_reply?: string | null },
+  body: {
+    status?: string;
+    priority?: string | null;
+    category?: string | null;
+    assigned_to_id?: number | null;
+    admin_notes?: string | null;
+    send_reply?: string | null;
+  },
   token: string
 ): Promise<FeedbackTicketAdminOut> {
   return request<FeedbackTicketAdminOut>(`/admin/feedback/${ticketId}`, {
@@ -732,10 +852,12 @@ export interface StaffLoginResponse {
   token_type: string;
 }
 
-export function staffLogin(login: string, password: string): Promise<StaffLoginResponse> {
+export function staffLogin(login: string, password: string, otpCode?: string): Promise<StaffLoginResponse> {
+  const payload: Record<string, string> = { login, password };
+  if (otpCode) payload.otp_code = otpCode;
   return request<StaffLoginResponse>("/staff/login", {
     method: "POST",
-    body: JSON.stringify({ login, password }),
+    body: JSON.stringify(payload),
   });
 }
 

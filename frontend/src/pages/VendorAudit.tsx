@@ -80,14 +80,14 @@ export function VendorAudit() {
 
   return (
     <PageLayout>
-      <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2 mb-6">
+      <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2 mb-4 sm:mb-6">
         <FileText className="w-8 h-8 text-emerald-700" aria-hidden />
         Журнал действий
       </h1>
-      <p className="text-slate-600 mb-4">Действия сотрудников компании в кабинете продавца.</p>
+      <p className="text-slate-600 mb-4 text-sm sm:text-base">Действия сотрудников компании в кабинете продавца.</p>
 
       <div className="rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-4 py-3 font-semibold text-slate-900">Дата</th>

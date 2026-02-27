@@ -7,6 +7,8 @@ class AuditLogOut(BaseModel):
     user_id: int | None
     user_phone: str | None
     user_name: str | None
+    staff_id: int | None
+    staff_login: str | None
     company_id: int | None
     action: str
     entity_type: str | None

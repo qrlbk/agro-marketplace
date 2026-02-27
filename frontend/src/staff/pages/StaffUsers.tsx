@@ -12,6 +12,9 @@ export function StaffUsers() {
   const { getTokenForAdminApi } = useStaffAuth();
   const token = getTokenForAdminApi();
   const [users, setUsers] = useState<User[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const limit = 50;
   const [roleFilter, setRoleFilter] = useState("");
   const [phoneFilter, setPhoneFilter] = useState(phoneFromUrl);
   const [loading, setLoading] = useState(true);
@@ -31,12 +34,17 @@ export function StaffUsers() {
     const params = new URLSearchParams();
     if (roleFilter) params.set("role", roleFilter);
     if (phoneFilter.trim()) params.set("phone", phoneFilter.trim());
-    const url = params.toString() ? `/admin/users?${params}` : "/admin/users";
-    request<User[]>(url, { token })
-      .then(setUsers)
+    params.set("limit", String(limit));
+    params.set("offset", String(page * limit));
+    const url = `/admin/users?${params}`;
+    request<{ items: User[]; total: number }>(url, { token })
+      .then((data) => {
+        setUsers(data.items);
+        setTotal(data.total);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Ошибка загрузки"))
       .finally(() => setLoading(false));
-  }, [token, roleFilter, phoneFilter]);
+  }, [token, roleFilter, phoneFilter, page]);
 
   if (loading) {
     return (
@@ -122,6 +130,31 @@ export function StaffUsers() {
           <p className="p-6 text-slate-600 text-center">Пользователей не найдено.</p>
         )}
       </div>
+      {total > 0 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
+          <span>
+            Показано {page * limit + 1}–{Math.min(page * limit + limit, total)} из {total}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-50"
+            >
+              Назад
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={(page + 1) * limit >= total}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-50"
+            >
+              Вперёд
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

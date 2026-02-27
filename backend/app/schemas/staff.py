@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class StaffLoginIn(BaseModel):
     login: str
     password: str
+    otp_code: str | None = None
 
 
 class StaffRoleOut(BaseModel):

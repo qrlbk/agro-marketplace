@@ -15,6 +15,9 @@ from app.config import settings
 security = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+MARKETPLACE_JWT_ISSUER = "marketplace"
+STAFF_JWT_ISSUER = "staff-portal"
+
 
 async def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
@@ -24,7 +27,12 @@ async def get_current_user_optional(
         return None
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+            issuer=MARKETPLACE_JWT_ISSUER,
+        )
         user_id: int | None = payload.get("sub")
         if user_id is None:
             return None
@@ -43,6 +51,11 @@ async def get_current_user(user: User | None = Depends(get_current_user_optional
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
+
+
+def _trusted_proxy_set() -> set[str]:
+    raw = getattr(settings, "trusted_proxies", "") or ""
+    return {ip.strip() for ip in raw.split(",") if ip.strip()}
 
 
 def require_role(*roles: UserRole):
@@ -89,9 +102,6 @@ async def get_current_admin(current_user: User = Depends(get_current_user)) -> U
     return current_user
 
 
-STAFF_JWT_ISSUER = "staff-portal"
-
-
 async def get_current_staff(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
@@ -101,10 +111,12 @@ async def get_current_staff(
     token = credentials.credentials
     secret = settings.staff_jwt_secret or settings.jwt_secret
     try:
-        kwargs = {"algorithms": [settings.jwt_algorithm]}
-        if settings.staff_jwt_secret is None:
-            kwargs["issuer"] = STAFF_JWT_ISSUER
-        payload = jwt.decode(token, secret, **kwargs)
+        payload = jwt.decode(
+            token,
+            secret,
+            algorithms=[settings.jwt_algorithm],
+            issuer=STAFF_JWT_ISSUER,
+        )
         staff_id = payload.get("sub")
         if staff_id is None:
             raise JWTError("No sub")
@@ -159,10 +171,12 @@ async def get_current_admin_or_staff(
     token = credentials.credentials
     secret = settings.staff_jwt_secret or settings.jwt_secret
     try:
-        kwargs = {"algorithms": [settings.jwt_algorithm]}
-        if settings.staff_jwt_secret is None:
-            kwargs["issuer"] = STAFF_JWT_ISSUER
-        payload = jwt.decode(token, secret, **kwargs)
+        payload = jwt.decode(
+            token,
+            secret,
+            algorithms=[settings.jwt_algorithm],
+            issuer=STAFF_JWT_ISSUER,
+        )
         staff_id = payload.get("sub")
         if staff_id is None:
             raise JWTError("No sub")
@@ -220,16 +234,52 @@ async def get_product_for_vendor(
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your product")
 
 
-def get_client_ip(request: Request | None = None) -> str | None:
-    """Client IP for audit log. Uses X-Forwarded-For first element when behind proxy."""
+def get_real_ip(request: Request | None = None) -> str | None:
+    """Return the best-effort real client IP, honoring trusted proxies."""
     if request is None:
         return None
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
+    direct_ip = request.client.host if request.client else None
+    if forwarded and direct_ip and direct_ip in _trusted_proxy_set():
+        for part in forwarded.split(","):
+            candidate = part.strip()
+            if candidate:
+                return candidate
+    return direct_ip
+
+
+def get_client_ip(request: Request | None = None) -> str | None:
+    """Backward compatible wrapper for get_real_ip (used in audit logs)."""
+    return get_real_ip(request)
+
+
+CHAT_RATELIMIT_PREFIX = "chat_rl:"
+
+
+async def check_chat_rate_limit(
+    request: Request,
+    current_user: User | None = Depends(get_current_user_optional),
+) -> None:
+    """Raise HTTP 429 if chat request rate exceeded. Key by user_id if authenticated else by IP."""
+    from app.services.redis_client import get_redis
+
+    if current_user is not None:
+        key = f"{CHAT_RATELIMIT_PREFIX}user:{current_user.id}"
+    else:
+        ip = get_client_ip(request) or "0.0.0.0"
+        key = f"{CHAT_RATELIMIT_PREFIX}ip:{ip}"
+    r = await get_redis()
+    window = getattr(settings, "chat_rate_limit_window_seconds", 60)
+    limit = getattr(settings, "chat_rate_limit_per_minute", 10)
+    n = await r.incr(key)
+    if n == 1:
+        await r.expire(key, window)
+    if n > limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Слишком много запросов к чату. Подождите минуту.",
+            headers={"Retry-After": str(window)},
+        )
 
 
 async def verify_webhook_1c_key(api_key: str | None = Depends(api_key_header)) -> None:

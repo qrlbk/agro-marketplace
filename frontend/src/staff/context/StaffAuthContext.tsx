@@ -34,7 +34,7 @@ type StaffAuthContextValue = {
   staff: StaffMeType | null;
   loading: boolean;
   isDemo: boolean;
-  login: (login: string, password: string) => Promise<void>;
+  login: (login: string, password: string, otpCode?: string) => Promise<void>;
   logout: () => void;
   hasPermission: (code: string) => boolean;
   /** Token to use for /admin/* API calls. In demo mode uses main app token so backend works. */
@@ -78,9 +78,9 @@ export function StaffAuthProvider({ children }: { children: React.ReactNode }) {
     loadStaff();
   }, [loadStaff]);
 
-  const login = useCallback(async (loginValue: string, password: string) => {
+  const login = useCallback(async (loginValue: string, password: string, otpCode?: string) => {
     try {
-      const res = await apiStaffLogin(loginValue, password);
+      const res = await apiStaffLogin(loginValue, password, otpCode);
       localStorage.setItem(STAFF_TOKEN_KEY, res.access_token);
       setToken(res.access_token);
     } catch (err) {
