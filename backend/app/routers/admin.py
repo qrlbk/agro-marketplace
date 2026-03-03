@@ -4,7 +4,7 @@ from decimal import Decimal
 from datetime import datetime, timezone, timedelta, date
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, exists, text
+from sqlalchemy import select, func, or_, exists
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import ProgrammingError, OperationalError
 from app.database import get_db
@@ -125,6 +125,7 @@ async def get_user(
 async def set_user_role(
     user_id: int,
     body: UserUpdateRole,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_staff("users.edit")),
 ):
@@ -136,11 +137,28 @@ async def set_user_role(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
+    old_role = user.role.value
     user.role = body.role
     await db.flush()
     await db.refresh(user)
     if user.company:
         await db.refresh(user.company)
+    ip = get_client_ip(request)
+    if isinstance(current_user, Staff):
+        await write_staff_audit_log(
+            db, current_user.id, "user_role_change",
+            entity_type="user", entity_id=user_id,
+            details={"old_role": old_role, "new_role": body.role.value},
+            ip=ip,
+        )
+    else:
+        await write_audit_log(
+            db, current_user.id, user.company_id, "user_role_change",
+            entity_type="user", entity_id=user_id,
+            details={"old_role": old_role, "new_role": body.role.value},
+            ip=ip,
+        )
+    await db.flush()
     return UserOut(
         id=user.id,
         role=user.role,
@@ -951,46 +969,41 @@ async def _admin_audit_log_impl(
         if "staff_id" not in err_msg:
             raise
         await db.rollback()
-        count_sql = "SELECT COUNT(*) FROM audit_logs a WHERE 1=1"
-        list_sql = """
-            SELECT a.id, a.user_id, a.company_id, a.action, a.entity_type, a.entity_id, a.details, a.created_at,
-                   u.phone, u.name
-            FROM audit_logs a
-            LEFT JOIN users u ON a.user_id = u.id
-            WHERE 1=1
-        """
-        params: dict = {}
+        # Fallback: ORM query without Staff join (e.g. before staff_id migration)
+        count_stmt = select(func.count()).select_from(AuditLog)
+        stmt = (
+            select(AuditLog, User.phone, User.name)
+            .outerjoin(User, AuditLog.user_id == User.id)
+            .order_by(AuditLog.created_at.desc())
+        )
         if company_id is not None:
-            count_sql += " AND a.company_id = :company_id"
-            list_sql += " AND a.company_id = :company_id"
-            params["company_id"] = company_id
+            count_stmt = count_stmt.where(AuditLog.company_id == company_id)
+            stmt = stmt.where(AuditLog.company_id == company_id)
         if user_id is not None:
-            count_sql += " AND a.user_id = :user_id"
-            list_sql += " AND a.user_id = :user_id"
-            params["user_id"] = user_id
+            count_stmt = count_stmt.where(AuditLog.user_id == user_id)
+            stmt = stmt.where(AuditLog.user_id == user_id)
         if action:
-            count_sql += " AND a.action = :action"
-            list_sql += " AND a.action = :action"
-            params["action"] = action
-        list_sql += " ORDER BY a.created_at DESC LIMIT :limit OFFSET :offset"
-        total = (await db.execute(text(count_sql), params)).scalar() or 0
-        list_params = {**params, "limit": limit, "offset": offset}
-        rows = (await db.execute(text(list_sql), list_params)).fetchall()
+            count_stmt = count_stmt.where(AuditLog.action == action)
+            stmt = stmt.where(AuditLog.action == action)
+        total = (await db.execute(count_stmt)).scalar() or 0
+        stmt = stmt.offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        rows = result.all()
         items = [
             AuditLogOut(
-                id=r.id,
-                user_id=r.user_id,
-                user_phone=r.phone,
-                user_name=r.name,
+                id=log.id,
+                user_id=log.user_id,
+                user_phone=phone,
+                user_name=name,
                 staff_id=None,
                 staff_login=None,
-                company_id=r.company_id,
-                action=r.action,
-                entity_type=r.entity_type,
-                entity_id=r.entity_id,
-                details=r.details,
-                created_at=r.created_at,
+                company_id=log.company_id,
+                action=log.action,
+                entity_type=log.entity_type,
+                entity_id=log.entity_id,
+                details=log.details,
+                created_at=log.created_at,
             )
-            for r in rows
+            for log, phone, name in rows
         ]
         return {"items": items, "total": total}

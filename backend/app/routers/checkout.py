@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models.product import Product
 from app.models.order import Order, OrderStatus, OrderItem
 from app.models.user import User
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, rate_limit
 from app.schemas.order import CheckoutIn, CheckoutOut
 from app.services.cart_service import get_cart, clear_cart, CartUnavailableError
 from app.utils.sanitize import sanitize_text
@@ -22,6 +22,7 @@ async def checkout(
     body: CheckoutIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rl: None = Depends(rate_limit("checkout", 10, 60)),
 ):
     items = await get_cart(current_user.id)
     if not items:
@@ -64,7 +65,7 @@ async def checkout(
         )
         db.add(order)
         await db.flush()
-        order.order_number = f"ORD-{datetime.utcnow().year}-{order.id:06d}"
+        order.order_number = f"ORD-{datetime.now(timezone.utc).year}-{order.id:06d}"
         await db.flush()
         for p, qty in rows:
             oi = OrderItem(order_id=order.id, product_id=p.id, quantity=qty, price_at_order=p.price)

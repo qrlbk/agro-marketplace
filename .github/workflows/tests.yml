@@ -10,6 +10,11 @@ jobs:
   backend-unit:
     name: Backend (unit)
     runs-on: ubuntu-latest
+    env:
+      STAFF_JWT_SECRET: ci-staff-secret
+      JWT_SECRET: ci-jwt-secret
+      WEBHOOK_1C_API_KEY: ci-webhook-key
+      LLM_FEATURES_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,7 +27,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd backend
-          pytest tests/ -v -m unit
+          pytest tests/ -v -m unit --cov=app --cov-report=term-missing --cov-fail-under=0
 
   frontend:
     name: Frontend
@@ -38,6 +43,10 @@ jobs:
         run: |
           cd frontend
           npm ci
+      - name: Build
+        run: |
+          cd frontend
+          npm run build
       - name: Run tests
         run: |
           cd frontend

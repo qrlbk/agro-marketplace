@@ -14,9 +14,13 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_access_expire_minutes: int = 30
+    jwt_refresh_expire_days: int = 7
+    jwt_refresh_secret: str = ""
     otp_expire_minutes: int = 10
     sms_api_url: str = ""
     sms_api_key: str = ""
+    # sms_provider: "sms_ru" | "generic" | "". If "sms_ru", SMS_API_KEY = api_id, URL ignored.
+    sms_provider: str = ""
     webhook_1c_api_key: str = ""
     adata_api_key: str = ""
     adata_bin_lookup_url: str = "https://api.adata.kz/v1/bin"
@@ -45,13 +49,20 @@ class Settings(BaseSettings):
     # Chat rate limit: max requests per user/IP per window (avoid OpenAI budget burn)
     chat_rate_limit_per_minute: int = 10
     chat_rate_limit_window_seconds: int = 60
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002"
+    search_suggest_rate_limit_per_minute: int = 10
+    search_suggest_rate_limit_window_seconds: int = 60
+    compatibility_rate_limit_per_minute: int = 5
+    compatibility_rate_limit_window_seconds: int = 60
+    cors_origins: str = ""
     # Staff portal: use a separate STAFF_JWT_SECRET in production to separate staff tokens from user tokens.
     # None = use jwt_secret with iss=staff-portal (dev only).
     staff_jwt_secret: str | None = None
     staff_default_login: str = "admin"
     staff_default_password: str = "admin"
     demo_auth_enabled: bool = False
+    demo_phone: str = ""
+    demo_password: str = ""
+    demo_role: str = "farmer"  # farmer | user only; never admin
     demo_login_rate_limit_per_ip: int = 10
     demo_login_rate_limit_window_seconds: int = 300
     staff_login_rate_limit_per_ip: int = 5
@@ -65,9 +76,13 @@ class Settings(BaseSettings):
     user_login_rate_limit_per_ip: int = 20
     user_login_rate_limit_per_phone: int = 10
     user_login_rate_limit_window_seconds: int = 900
+    jwt_blacklist_enabled: bool = True
+    jwt_bind_ip: bool = False  # if True, JWT payload includes ip_hash and validation checks client IP
     health_api_key: str = ""
     vendor_storage_quota_mb: int = 500
     clamav_scan_command: str = "clamdscan"
+    # Content-Security-Policy header (default suits JSON API only; relax if serving HTML).
+    security_csp_header: str = "default-src 'none'; frame-ancestors 'none'"
 
     class Config:
         env_file = _env_path
@@ -97,9 +112,9 @@ def validate_secrets() -> None:
         raise ConfigError("JWT_SECRET is empty or uses a default development value.")
 
     staff_secret = _clean_secret(settings.staff_jwt_secret)
-    if not staff_secret and _is_prod_like(settings.environment):
-        raise ConfigError("STAFF_JWT_SECRET must be set for production/stage environments.")
-    if staff_secret and staff_secret == jwt_secret:
+    if not staff_secret:
+        raise ConfigError("STAFF_JWT_SECRET must be set (even in dev).")
+    if staff_secret == jwt_secret:
         raise ConfigError("STAFF_JWT_SECRET must be different from JWT_SECRET.")
 
     webhook_key = _clean_secret(settings.webhook_1c_api_key)
@@ -119,6 +134,11 @@ def validate_secrets() -> None:
             raise ConfigError("STAFF_TOTP_SECRET must be set when staff_totp_required=True.")
 
     if _is_prod_like(settings.environment):
+        import warnings
+        if not (settings.redis_url or "").strip().startswith("rediss://"):
+            warnings.warn("REDIS_URL should use rediss:// (TLS) in production.", stacklevel=0)
+        if not _clean_secret(getattr(settings, "jwt_refresh_secret", "")):
+            raise ConfigError("JWT_REFRESH_SECRET must be set for production/stage (refresh token signing).")
         pwd = (settings.staff_default_password or "").strip()
         if pwd == "admin" or len(pwd) < settings.staff_password_min_length:
             raise ConfigError(

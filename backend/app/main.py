@@ -17,8 +17,12 @@ UPLOADS_ROOT = Path(__file__).resolve().parent.parent / "uploads"
 UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
 
 CORS_ALLOWED_ORIGINS = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-if not CORS_ALLOWED_ORIGINS:
-    CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"]
+_DEV_ENVS = {"dev", "development", ""}
+if not CORS_ALLOWED_ORIGINS and settings.environment.strip().lower() in _DEV_ENVS:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000", "http://localhost:3001",
+        "http://127.0.0.1:3000", "http://127.0.0.1:3001",
+    ]
 
 
 @asynccontextmanager
@@ -32,7 +36,15 @@ async def lifespan(app: FastAPI):
         logger.warning("Closing OpenAI client: %s", e)
 
 
-app = FastAPI(title="Agro Marketplace API", version="0.1.0", docs_url="/docs", redoc_url="/redoc", lifespan=lifespan)
+_is_dev = settings.environment.strip().lower() in _DEV_ENVS
+app = FastAPI(
+    title="Agro Marketplace API",
+    version="0.1.0",
+    docs_url="/docs" if _is_dev else None,
+    redoc_url="/redoc" if _is_dev else None,
+    openapi_url="/openapi.json" if _is_dev else None,
+    lifespan=lifespan,
+)
 
 
 def _cors_headers_for_request(request: Request) -> dict[str, str]:
@@ -42,8 +54,8 @@ def _cors_headers_for_request(request: Request) -> dict[str, str]:
         return {
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, X-API-Key, x-health-api-key",
         }
     return {}
 
@@ -67,13 +79,45 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return response
 
 
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@app.middleware("http")
+async def limit_request_body(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body too large"},
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "x-health-api-key"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = settings.security_csp_header
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(products.router, prefix="/products", tags=["products"])

@@ -1,8 +1,9 @@
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.user import User, UserRole
@@ -19,7 +20,13 @@ MARKETPLACE_JWT_ISSUER = "marketplace"
 STAFF_JWT_ISSUER = "staff-portal"
 
 
+def _ip_hash(ip: str) -> str:
+    import hashlib
+    return hashlib.sha256(ip.encode()).hexdigest()[:32]
+
+
 async def get_current_user_optional(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
@@ -36,7 +43,14 @@ async def get_current_user_optional(
         user_id: int | None = payload.get("sub")
         if user_id is None:
             return None
-    except JWTError:
+        if getattr(settings, "jwt_bind_ip", False) and payload.get("ip_hash"):
+            client_ip = get_real_ip(request) or ""
+            if _ip_hash(client_ip) != payload.get("ip_hash"):
+                return None
+    except PyJWTError:
+        return None
+    from app.services.token_blacklist import is_blacklisted
+    if await is_blacklisted(payload.get("jti")):
         return None
     result = await db.execute(
         select(User).where(User.id == int(user_id)).options(
@@ -44,6 +58,9 @@ async def get_current_user_optional(
         )
     )
     user = result.scalar_one_or_none()
+    # RLS: set app.current_user_id so row-level security policies can filter by owner (literal: SET does not support $1)
+    uid = (user.id if user else -1)
+    await db.execute(text(f"SET LOCAL app.current_user_id = {uid}"))
     return user
 
 
@@ -119,9 +136,12 @@ async def get_current_staff(
         )
         staff_id = payload.get("sub")
         if staff_id is None:
-            raise JWTError("No sub")
-    except JWTError:
+            raise PyJWTError("No sub")
+    except PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    from app.services.token_blacklist import is_blacklisted
+    if await is_blacklisted(payload.get("jti")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
     result = await db.execute(
         select(Staff).where(Staff.id == int(staff_id)).options(
             selectinload(Staff.role).selectinload(Role.permissions)
@@ -179,9 +199,12 @@ async def get_current_admin_or_staff(
         )
         staff_id = payload.get("sub")
         if staff_id is None:
-            raise JWTError("No sub")
-    except JWTError:
+            raise PyJWTError("No sub")
+    except PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    from app.services.token_blacklist import is_blacklisted as _bl
+    if await _bl(payload.get("jti")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
     result = await db.execute(
         select(Staff).where(Staff.id == int(staff_id)).options(
             selectinload(Staff.role).selectinload(Role.permissions)
@@ -280,6 +303,73 @@ async def check_chat_rate_limit(
             detail="Слишком много запросов к чату. Подождите минуту.",
             headers={"Retry-After": str(window)},
         )
+
+
+SEARCH_SUGGEST_RL_PREFIX = "rl:search_suggest:"
+
+
+async def check_search_suggest_rate_limit(request: Request) -> None:
+    """Raise HTTP 429 if search suggest rate exceeded (per IP)."""
+    from app.services.redis_client import get_redis
+
+    ip = get_client_ip(request) or "0.0.0.0"
+    key = f"{SEARCH_SUGGEST_RL_PREFIX}ip:{ip}"
+    r = await get_redis()
+    window = settings.search_suggest_rate_limit_window_seconds
+    limit = settings.search_suggest_rate_limit_per_minute
+    n = await r.incr(key)
+    if n == 1:
+        await r.expire(key, window)
+    if n > limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Слишком много запросов к поиску. Подождите минуту.",
+            headers={"Retry-After": str(window)},
+        )
+
+
+COMPATIBILITY_RL_PREFIX = "rl:compat:"
+
+
+async def check_compatibility_rate_limit(request: Request) -> None:
+    """Raise HTTP 429 if compatibility check rate exceeded (per IP)."""
+    from app.services.redis_client import get_redis
+
+    ip = get_client_ip(request) or "0.0.0.0"
+    key = f"{COMPATIBILITY_RL_PREFIX}ip:{ip}"
+    r = await get_redis()
+    window = settings.compatibility_rate_limit_window_seconds
+    limit = settings.compatibility_rate_limit_per_minute
+    n = await r.incr(key)
+    if n == 1:
+        await r.expire(key, window)
+    if n > limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Слишком много запросов проверки совместимости. Подождите минуту.",
+            headers={"Retry-After": str(window)},
+        )
+
+
+def rate_limit(prefix: str, limit: int, window_seconds: int):
+    """Return a dependency that raises 429 if requests from same IP exceed limit per window."""
+
+    async def _check(request: Request) -> None:
+        from app.services.redis_client import get_redis
+        ip = get_client_ip(request) or "0.0.0.0"
+        key = f"rl:{prefix}:ip:{ip}"
+        r = await get_redis()
+        n = await r.incr(key)
+        if n == 1:
+            await r.expire(key, window_seconds)
+        if n > limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Слишком много запросов. Попробуйте позже.",
+                headers={"Retry-After": str(window_seconds)},
+            )
+
+    return _check
 
 
 async def verify_webhook_1c_key(api_key: str | None = Depends(api_key_header)) -> None:

@@ -1,6 +1,7 @@
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from jose import jwt
+import jwt
 from passlib.context import CryptContext
 import pyotp
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +15,9 @@ from app.schemas.staff import (
     StaffLoginIn, StaffMeOut, StaffChangePasswordIn, TokenOut, StaffRoleOut,
     StaffEmployeeOut, StaffEmployeeCreate, StaffEmployeeUpdate,
     PermissionOut, RoleOut, RoleCreate, RoleUpdate,
+    StaffRefreshTokenIn,
 )
-from app.dependencies import get_current_staff, get_current_staff_with_permission, get_current_staff_with_any_permission, STAFF_JWT_ISSUER, get_client_ip
+from app.dependencies import get_current_staff, get_current_staff_with_permission, get_current_staff_with_any_permission, STAFF_JWT_ISSUER, get_client_ip, security
 from app.services.audit import write_staff_audit_log
 from app.services.redis_client import get_redis
 
@@ -25,16 +27,48 @@ STAFF_RL_IP_PREFIX = "staffrl:ip:"
 STAFF_RL_LOGIN_PREFIX = "staffrl:login:"
 
 
+STAFF_REFRESH_TOKEN_TYPE = "refresh"
+
+
+def _staff_secret() -> str:
+    return (settings.staff_jwt_secret or settings.jwt_secret) or ""
+
+
 def _create_staff_token(staff_id: int, permissions: list[str]) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.jwt_access_expire_minutes)
-    secret = settings.staff_jwt_secret or settings.jwt_secret
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.jwt_access_expire_minutes)
+    secret = _staff_secret()
     payload = {
         "sub": str(staff_id),
+        "iat": now,
         "exp": expire,
         "permissions": permissions,
         "iss": STAFF_JWT_ISSUER,
+        "jti": uuid.uuid4().hex,
     }
     return jwt.encode(payload, secret, algorithm=settings.jwt_algorithm)
+
+
+def _create_staff_refresh_token(staff_id: int) -> str:
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=getattr(settings, "jwt_refresh_expire_days", 7))
+    secret = _staff_secret()
+    payload = {
+        "sub": str(staff_id),
+        "iat": now,
+        "exp": expire,
+        "iss": STAFF_JWT_ISSUER,
+        "jti": uuid.uuid4().hex,
+        "type": STAFF_REFRESH_TOKEN_TYPE,
+    }
+    return jwt.encode(payload, secret, algorithm=settings.jwt_algorithm)
+
+
+def _make_staff_token_out(staff_id: int, permissions: list[str]) -> TokenOut:
+    access = _create_staff_token(staff_id, permissions)
+    refresh = _create_staff_refresh_token(staff_id)
+    expires_in = settings.jwt_access_expire_minutes * 60
+    return TokenOut(access_token=access, refresh_token=refresh, expires_in=expires_in)
 
 
 def _staff_to_me_out(staff: Staff) -> StaffMeOut:
@@ -195,7 +229,7 @@ async def staff_login(
             "feedback.view", "feedback.edit", "users.view", "users.edit", "audit.view", "search.view",
             "staff.manage", "roles.manage",
         ]
-    token = _create_staff_token(staff.id, permissions)
+    token_out = _make_staff_token_out(staff.id, permissions)
     await write_staff_audit_log(
         db,
         staff.id,
@@ -203,7 +237,54 @@ async def staff_login(
         details={"login": login},
         ip=client_ip,
     )
-    return TokenOut(access_token=token)
+    return token_out
+
+
+@router.post("/refresh", response_model=TokenOut)
+async def staff_refresh(
+    body: StaffRefreshTokenIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Exchange a valid staff refresh token for a new access and refresh token pair."""
+    from app.services.token_blacklist import is_blacklisted, blacklist_token
+    try:
+        payload = jwt.decode(
+            body.refresh_token,
+            _staff_secret(),
+            algorithms=[settings.jwt_algorithm],
+            issuer=STAFF_JWT_ISSUER,
+        )
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    if payload.get("type") != STAFF_REFRESH_TOKEN_TYPE:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    jti = payload.get("jti")
+    if await is_blacklisted(jti):
+        raise HTTPException(status_code=401, detail="Token revoked")
+    staff_id = payload.get("sub")
+    if not staff_id:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    result = await db.execute(
+        select(Staff).where(Staff.id == int(staff_id)).options(
+            selectinload(Staff.role).selectinload(Role.permissions)
+        )
+    )
+    staff = result.scalar_one_or_none()
+    if not staff or not staff.is_active:
+        raise HTTPException(status_code=401, detail="Staff not found or disabled")
+    exp = payload.get("exp")
+    if exp:
+        remaining = int(exp - datetime.now(timezone.utc).timestamp())
+        if remaining > 0:
+            await blacklist_token(jti, remaining)
+    permissions = [p.code for p in staff.role.permissions] if staff.role else []
+    if staff.role and staff.role.slug == "super_admin":
+        permissions = [
+            "dashboard.view", "orders.view", "orders.edit", "vendors.view", "vendors.approve",
+            "feedback.view", "feedback.edit", "users.view", "users.edit", "audit.view", "search.view",
+            "staff.manage", "roles.manage",
+        ]
+    return _make_staff_token_out(staff.id, permissions)
 
 
 @router.get("/me", response_model=StaffMeOut)
@@ -214,8 +295,10 @@ async def staff_me(staff: Staff = Depends(get_current_staff)):
 @router.post("/me/change-password")
 async def staff_change_password(
     body: StaffChangePasswordIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     staff: Staff = Depends(get_current_staff),
+    credentials=Depends(security),
 ):
     if not pwd_ctx.verify(body.current_password, staff.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
@@ -224,6 +307,24 @@ async def staff_change_password(
     staff.password_hash = pwd_ctx.hash(new_password)
     await db.flush()
     await db.refresh(staff)
+    if credentials:
+        try:
+            from datetime import datetime as _dt
+            secret = settings.staff_jwt_secret or settings.jwt_secret
+            payload = jwt.decode(
+                credentials.credentials, secret,
+                algorithms=[settings.jwt_algorithm],
+                options={"verify_iss": False},
+            )
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                remaining = int(exp - _dt.utcnow().timestamp())
+                if remaining > 0:
+                    from app.services.token_blacklist import blacklist_token
+                    await blacklist_token(jti, remaining)
+        except Exception:
+            pass
     return {"message": "Password updated"}
 
 

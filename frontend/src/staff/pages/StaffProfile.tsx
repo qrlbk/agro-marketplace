@@ -20,8 +20,16 @@ export function StaffProfile() {
       setError("Пароли не совпадают");
       return;
     }
-    if (newPassword.length < 6) {
-      setError("Новый пароль должен быть не короче 6 символов");
+    if (newPassword.length < 12) {
+      setError("Новый пароль должен быть не короче 12 символов");
+      return;
+    }
+    if (!/[a-zA-Zа-яА-Я]/.test(newPassword)) {
+      setError("Пароль должен содержать буквы");
+      return;
+    }
+    if (!/\d/.test(newPassword)) {
+      setError("Пароль должен содержать цифры");
       return;
     }
     if (isDemo || !token || token === "__staff_demo__") {

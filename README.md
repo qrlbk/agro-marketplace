@@ -26,6 +26,13 @@ docker compose -f docker/docker-compose.yml up -d
 
 Для запуска и деплоя используйте только `frontend/` и `backend/`.
 
+## Testing
+
+- **Backend:** unit tests (no DB/Redis) — `pytest tests/ -v -m unit`. Integration tests require PostgreSQL and Redis (e.g. `docker compose -f docker/docker-compose.yml up -d`); then run `pytest tests/ -v -m integration` or full `pytest tests/`. Coverage: `pytest tests/ --cov=app --cov-report=term-missing` (optional `--cov-fail-under=70`).
+- **Frontend:** `npm run test:run` in `frontend/`; build: `npm run build`.
+
+CI (GitHub Actions) runs backend unit tests and frontend build + tests on push/PR.
+
 ## Security checklist
 
 - Заполняйте `JWT_SECRET`, `STAFF_JWT_SECRET`, `WEBHOOK_1C_API_KEY`, `OPENAI_API_KEY` и другие чувствительные переменные в `backend/.env`. В production используйте разные и достаточно длинные секреты (например `openssl rand -hex 32`).

@@ -14,7 +14,7 @@ from app.models.user import User, UserRole
 from app.models.company import Company
 from app.models.audit_log import AuditLog
 from app.models.company_member import CompanyMember, CompanyRole
-from app.dependencies import get_current_vendor, get_current_vendor_owner, get_client_ip
+from app.dependencies import get_current_vendor, get_current_vendor_owner, get_client_ip, rate_limit
 from app.services.redis_client import invalidate_product_cache
 from app.services.audit import write_audit_log
 from app.services.storage_quota import ensure_storage_quota
@@ -164,6 +164,7 @@ async def upload_pricelist(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_vendor),
+    _rl: None = Depends(rate_limit("upload_pricelist", 5, 60)),
 ):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Only Excel files (.xlsx, .xls) allowed")
@@ -260,6 +261,7 @@ async def upload_product_image(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_vendor),
+    _rl: None = Depends(rate_limit("upload_image", 30, 60)),
 ):
     """Загрузка фото товара. Возвращает URL для сохранения в product.images."""
     if not file.filename:
@@ -272,13 +274,9 @@ async def upload_product_image(
         raise HTTPException(400, f"Размер файла не более {MAX_IMAGE_MB} МБ")
     detected_mime = _ensure_allowed_mime(content, ALLOWED_IMAGE_CONTENT_TYPES, "изображения")
     await _reserve_storage_quota(db, current_user, request, _bytes_to_mb(len(content)))
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid4().hex}{ext}"
-    path = UPLOADS_DIR / name
-    path.write_bytes(content)
     if _clamav_scan_enabled():
         try:
-            await _scan_path_with_clamav(path)
+            await _scan_content_with_clamav(content, ext if ext else ".jpg")
         except HTTPException as exc:
             if exc.status_code == 400:
                 await write_audit_log(
@@ -290,6 +288,10 @@ async def upload_product_image(
                     ip=get_client_ip(request),
                 )
             raise
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"{uuid4().hex}{ext}"
+    path = UPLOADS_DIR / name
+    path.write_bytes(content)
     # Путь для фронтенда: /uploads/products/xxx (без /api, прокси сам добавит)
     url = f"/uploads/products/{name}"
     return {"url": url}

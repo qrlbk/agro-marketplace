@@ -79,6 +79,18 @@ export function Profile() {
       setPasswordError("Пароли не совпадают");
       return;
     }
+    if (newPassword.length < 8) {
+      setPasswordError("Пароль должен быть не короче 8 символов");
+      return;
+    }
+    if (!/[a-zA-Zа-яА-Я]/.test(newPassword)) {
+      setPasswordError("Пароль должен содержать буквы");
+      return;
+    }
+    if (!/\d/.test(newPassword)) {
+      setPasswordError("Пароль должен содержать цифры");
+      return;
+    }
     setPasswordSaving(true);
     try {
       const body: { current_password?: string | null; new_password: string } = {

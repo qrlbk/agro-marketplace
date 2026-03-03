@@ -69,6 +69,13 @@ export function StaffEmployees() {
     setModalOpen(true);
   };
 
+  const _validateStaffPassword = (pwd: string): string | null => {
+    if (pwd.length < 12) return "Пароль должен быть не короче 12 символов";
+    if (!/[a-zA-Zа-яА-Я]/.test(pwd)) return "Пароль должен содержать буквы";
+    if (!/\d/.test(pwd)) return "Пароль должен содержать цифры";
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || isDemo) return;
@@ -76,6 +83,8 @@ export function StaffEmployees() {
     setError(null);
     try {
       if (editingId === null) {
+        const pwdErr = _validateStaffPassword(formPassword);
+        if (pwdErr) { setError(pwdErr); setSaving(false); return; }
         await postStaffEmployee(token, {
           login: formLogin.trim(),
           name: formName.trim() || null,
@@ -84,6 +93,10 @@ export function StaffEmployees() {
           is_active: formIsActive,
         });
       } else {
+        if (formNewPassword.trim()) {
+          const pwdErr = _validateStaffPassword(formNewPassword.trim());
+          if (pwdErr) { setError(pwdErr); setSaving(false); return; }
+        }
         await patchStaffEmployee(token, editingId, {
           name: formName.trim() || null,
           role_id: formRoleId,

@@ -7,7 +7,7 @@ from app.models.feedback import FeedbackTicket, FeedbackStatus
 from app.models.order import Order
 from app.models.product import Product
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
-from app.dependencies import get_current_user_optional
+from app.dependencies import get_current_user_optional, rate_limit
 from app.utils.sanitize import sanitize_text, sanitize_text_required
 
 router = APIRouter()
@@ -18,6 +18,7 @@ async def create_feedback(
     body: FeedbackCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),
+    _rl: None = Depends(rate_limit("feedback", 5, 60)),
 ):
     if not current_user and not body.contact_phone:
         raise HTTPException(

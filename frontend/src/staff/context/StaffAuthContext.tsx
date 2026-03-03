@@ -1,7 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { staffLogin as apiStaffLogin, staffMe, type StaffMe as StaffMeType } from "../../api/client";
+import {
+  staffLogin as apiStaffLogin,
+  staffMe,
+  postStaffRefresh,
+  setStaffAuthRefresher,
+  type StaffMe as StaffMeType,
+} from "../../api/client";
 
 const STAFF_TOKEN_KEY = "staff_token";
+const STAFF_REFRESH_TOKEN_KEY = "staff_refresh_token";
 const DEMO_TOKEN = "__staff_demo__";
 
 const ALL_PERMISSIONS = [
@@ -82,12 +89,14 @@ export function StaffAuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await apiStaffLogin(loginValue, password, otpCode);
       localStorage.setItem(STAFF_TOKEN_KEY, res.access_token);
+      localStorage.setItem(STAFF_REFRESH_TOKEN_KEY, res.refresh_token);
       setToken(res.access_token);
     } catch (err) {
       const isNetworkOr404 =
         err instanceof TypeError ||
         (err instanceof Error && ("status" in err && (err as { status?: number }).status === 404));
-      if (isNetworkOr404 && loginValue === "admin" && password === "admin") {
+      const demoEnabled = import.meta.env.VITE_SHOW_DEMO === "true";
+      if (import.meta.env.DEV && demoEnabled && isNetworkOr404 && loginValue === "admin" && password === "admin") {
         localStorage.setItem(STAFF_TOKEN_KEY, DEMO_TOKEN);
         setToken(DEMO_TOKEN);
         setStaff(DEMO_STAFF);
@@ -98,8 +107,30 @@ export function StaffAuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    setStaffAuthRefresher(async () => {
+      const refreshToken = localStorage.getItem(STAFF_REFRESH_TOKEN_KEY);
+      if (!refreshToken) return null;
+      try {
+        const data = await postStaffRefresh(refreshToken);
+        localStorage.setItem(STAFF_TOKEN_KEY, data.access_token);
+        localStorage.setItem(STAFF_REFRESH_TOKEN_KEY, data.refresh_token);
+        setToken(data.access_token);
+        return data.access_token;
+      } catch {
+        localStorage.removeItem(STAFF_TOKEN_KEY);
+        localStorage.removeItem(STAFF_REFRESH_TOKEN_KEY);
+        setToken(null);
+        setStaff(null);
+        return null;
+      }
+    });
+    return () => setStaffAuthRefresher(null);
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem(STAFF_TOKEN_KEY);
+    localStorage.removeItem(STAFF_REFRESH_TOKEN_KEY);
     setToken(null);
     setStaff(null);
   }, []);

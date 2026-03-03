@@ -1,7 +1,15 @@
+import os
+# Set env before app is loaded so validate_secrets() can pass when .env is minimal
+os.environ.setdefault("STAFF_JWT_SECRET", "pytest-staff-secret-required")
+os.environ.setdefault("JWT_SECRET", "pytest-jwt-secret-required")
+os.environ.setdefault("WEBHOOK_1C_API_KEY", "pytest-webhook-key")
+os.environ.setdefault("LLM_FEATURES_ENABLED", "false")
+
+import uuid
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
+import jwt
 
 from app.config import settings
 from app.main import app
@@ -18,8 +26,12 @@ def anyio_backend():
 def make_token():
     """Factory fixture: returns a function that builds a valid JWT for testing."""
     def _make(user_id: int, role: UserRole, phone: str) -> str:
-        expire = datetime.utcnow() + timedelta(minutes=settings.jwt_access_expire_minutes)
-        payload = {"sub": str(user_id), "role": role.value, "phone": phone, "exp": expire, "iss": "marketplace"}
+        now = datetime.now(timezone.utc)
+        expire = now + timedelta(minutes=settings.jwt_access_expire_minutes)
+        payload = {
+            "sub": str(user_id), "role": role.value, "phone": phone,
+            "iat": now, "exp": expire, "iss": "marketplace", "jti": uuid.uuid4().hex,
+        }
         return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return _make
 

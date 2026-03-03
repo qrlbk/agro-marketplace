@@ -102,6 +102,26 @@
 
 ---
 
+## Security headers
+
+Backend выставляет следующие заголовки ответа (middleware в `app/main.py`):
+
+| Заголовок | Значение по умолчанию | Назначение |
+|-----------|------------------------|------------|
+| `X-Content-Type-Options` | `nosniff` | Запрет MIME-sniffing. |
+| `X-Frame-Options` | `DENY` | Запрет встраивания в iframe. |
+| `X-XSS-Protection` | `0` | Отключение устаревшего XSS-фильтра браузера. |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Ограничение данных в Referer. |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | Отключение доступа к устройствам. |
+| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'` | Для чистого JSON API: запрет загрузки ресурсов и встраивания. |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Только при HTTPS. |
+
+**CSP:** текущая политика рассчитана на API, отдающий только JSON. Если тот же бэкенд начнёт отдавать HTML-страницы (например, админка или статика с инлайновыми скриптами), политику нужно пересмотреть и при необходимости задать через `SECURITY_CSP_HEADER` в `.env`.
+
+**Настраиваемость:** строка CSP задаётся в `backend/app/config.py` (`security_csp_header`); по умолчанию — значение выше. Для stage/prod при необходимости можно ослабить или ужесточить политику без правки кода.
+
+---
+
 ## Чек-лист при добавлении нового функционала
 
 - [ ] Эндпоинты с ID в пути: проверка владельца или прав (admin/staff).

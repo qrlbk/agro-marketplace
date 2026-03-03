@@ -20,6 +20,8 @@ htmlcov/
 # Node / Frontend
 node_modules/
 frontend/dist/
+frontend/vite.config.js
+frontend/vite.config.d.ts
 *.tsbuildinfo
 .npm
 .eslintcache
@@ -31,6 +33,7 @@ backend/uploads/
 .idea/
 .vscode/
 .cursor/plans/
+.cursor/worktrees.json
 *.swp
 *.swo
 

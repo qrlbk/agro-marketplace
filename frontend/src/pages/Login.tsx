@@ -74,13 +74,13 @@ export function Login() {
       setError("Сервер не отвечает. Запустите бэкенд: в папке backend выполните uvicorn app.main:app --reload");
     }, TIMEOUT_MS);
     try {
-      const data = await request<{ access_token: string }>("/auth/demo-login", {
+      const data = await request<{ access_token: string; refresh_token: string }>("/auth/demo-login", {
         method: "POST",
         body: JSON.stringify({ phone: normalizePhoneForApi(phoneVal), password: passwordVal }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-      login(data.access_token);
+      login(data.access_token, data.refresh_token);
       const me = await request<User>("/auth/me", { token: data.access_token });
       goAfterLogin(me);
     } catch (e) {
@@ -121,12 +121,12 @@ export function Login() {
       return;
     }
     try {
-      const data = await request<{ access_token: string }>("/auth/verify-otp", {
+      const data = await request<{ access_token: string; refresh_token: string }>("/auth/verify-otp", {
         method: "POST",
         body: JSON.stringify({ phone: normalizePhoneForApi(phone), code }),
       });
       const token = data.access_token;
-      login(token);
+      login(data.access_token, data.refresh_token);
 
       // Классическая регистрация: после первой авторизации сразу задаём пароль
       if (createPassword) {
@@ -169,11 +169,11 @@ export function Login() {
     }
     setPasswordLoginLoading(true);
     try {
-      const data = await request<{ access_token: string }>("/auth/login-password", {
+      const data = await request<{ access_token: string; refresh_token: string }>("/auth/login-password", {
         method: "POST",
         body: JSON.stringify({ phone: normalizePhoneForApi(phoneVal), password: passwordVal }),
       });
-      login(data.access_token);
+      login(data.access_token, data.refresh_token);
       const me = await request<User>("/auth/me", { token: data.access_token });
       goAfterLogin(me);
     } catch (e) {

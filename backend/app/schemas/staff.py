@@ -35,7 +35,13 @@ class StaffChangePasswordIn(BaseModel):
 
 class TokenOut(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+    expires_in: int  # seconds until access_token expiry
+
+
+class StaffRefreshTokenIn(BaseModel):
+    refresh_token: str
 
 
 # --- Employees CRUD ---

@@ -6,7 +6,7 @@ from app.models.audit_log import AuditLog
 
 async def write_audit_log(
     db: AsyncSession,
-    user_id: int,
+    user_id: int | None,
     company_id: int | None,
     action: str,
     entity_type: str | None = None,
@@ -14,7 +14,7 @@ async def write_audit_log(
     details: dict | None = None,
     ip: str | None = None,
 ) -> None:
-    """Append one record to audit_logs (user actor). Call after successful mutations."""
+    """Append one record to audit_logs (user actor, or anonymous when user_id is None)."""
     log = AuditLog(
         user_id=user_id,
         staff_id=None,

@@ -39,3 +39,37 @@ def sanitize_text_required(value: str | None, max_length: int = 0) -> str:
     """Like sanitize_text but returns empty string instead of None for empty input."""
     out = sanitize_text(value, max_length)
     return out if out is not None else ""
+
+
+_DANGEROUS_SCHEMES = {"javascript:", "data:text/html", "vbscript:"}
+
+
+def validate_image_url(url: str) -> bool:
+    """Return True if *url* is safe to store as a product image URL.
+
+    Allowed:
+      - Relative paths starting with /uploads/
+      - HTTPS URLs to external images
+    Blocked:
+      - javascript:, data:text/html, vbscript: schemes
+      - Non-HTTPS external URLs (except localhost for dev)
+    """
+    stripped = url.strip()
+    lower = stripped.lower()
+    for scheme in _DANGEROUS_SCHEMES:
+        if lower.startswith(scheme):
+            return False
+    if stripped.startswith("/"):
+        return stripped.startswith("/uploads/")
+    if lower.startswith("https://"):
+        return True
+    if lower.startswith("http://localhost") or lower.startswith("http://127.0.0.1"):
+        return True
+    return False
+
+
+def sanitize_image_urls(urls: list[str] | None) -> list[str] | None:
+    """Filter a list of image URLs, keeping only safe ones."""
+    if urls is None:
+        return None
+    return [u for u in urls if validate_image_url(u)]

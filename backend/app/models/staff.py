@@ -1,6 +1,6 @@
 from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Table, Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 # Many-to-many: Role <-> Permission
@@ -46,10 +46,13 @@ class Staff(Base):
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id", ondelete="RESTRICT"), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     role: Mapped["Role"] = relationship("Role", back_populates="staff", lazy="selectin")
+
+    def __repr__(self) -> str:
+        return f"<Staff id={self.id} login={self.login}>"
 
 
 # Back-populate for Permission (many-to-many)

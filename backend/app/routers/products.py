@@ -13,10 +13,11 @@ from app.models.category import Category
 from app.models.user import User, UserRole
 from app.schemas.product import ProductOut, ProductListOut, ProductCreate, ProductUpdate, AddCompatibilityIn, CheckCompatibilityIn
 from app.schemas.review import ReviewCreateIn, ReviewOut, ProductReviewsResponse
-from app.dependencies import get_current_vendor, get_current_admin, get_product_for_vendor, get_current_user, get_current_user_optional, get_client_ip
+from app.dependencies import get_current_vendor, get_current_admin, get_product_for_vendor, get_current_user, get_current_user_optional, get_client_ip, check_compatibility_rate_limit, rate_limit
 from app.services.redis_client import get_redis, cache_get, cache_set, cache_key_prefix, invalidate_product_cache
 from app.services.search_suggest import get_search_suggestions
 from app.services.audit import write_audit_log
+from app.utils.sanitize import sanitize_image_urls
 from app.config import settings
 
 router = APIRouter()
@@ -195,6 +196,7 @@ async def list_products(
 async def check_compatibility(
     body: CheckCompatibilityIn,
     db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(check_compatibility_rate_limit),
 ):
     """AI check: is this product suitable for this machine? Does not modify CompatibilityMatrix."""
     result = await db.execute(select(Product).where(Product.id == body.product_id))
@@ -385,6 +387,7 @@ async def create_product(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_vendor),
+    _rl: None = Depends(rate_limit("product_write", 20, 60)),
 ):
     article_number = (body.article_number or "").strip() or generate_article_number()
     product = Product(
@@ -397,7 +400,7 @@ async def create_product(
         description=body.description,
         characteristics=body.characteristics,
         composition=body.composition,
-        images=body.images,
+        images=sanitize_image_urls(body.images),
         status=body.status,
     )
     db.add(product)
@@ -426,24 +429,34 @@ async def update_product(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_vendor),
     product: Product = Depends(get_product_for_vendor),
+    _rl: None = Depends(rate_limit("product_write", 20, 60)),
 ):
     updates = body.model_dump(exclude_unset=True)
     if "article_number" in updates and not (updates["article_number"] or "").strip():
         updates["article_number"] = generate_article_number()
+    if "images" in updates:
+        updates["images"] = sanitize_image_urls(updates["images"])
+    old_price = product.price
     for k, v in updates.items():
         setattr(product, k, v)
     await db.flush()
     await db.refresh(product)
     await invalidate_product_cache()
+    audit_details: dict = {"name": product.name, "article_number": product.article_number}
+    action = "product_update"
+    if "price" in updates and old_price != product.price:
+        audit_details["old_price"] = float(old_price) if old_price is not None else None
+        audit_details["new_price"] = float(product.price) if product.price is not None else None
+        action = "product_price_change"
     if current_user.company_id:
         await write_audit_log(
             db,
             user_id=current_user.id,
             company_id=current_user.company_id,
-            action="product_update",
+            action=action,
             entity_type="product",
             entity_id=product.id,
-            details={"name": product.name, "article_number": product.article_number},
+            details=audit_details,
             ip=get_client_ip(request),
         )
         await db.flush()
