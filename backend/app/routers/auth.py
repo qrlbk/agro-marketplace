@@ -336,7 +336,7 @@ async def onboarding(
     if body.role == UserRole.user:
         _ensure_valid_region(body.region)
         current_user.role = UserRole.user
-        current_user.name = body.name or current_user.name
+        current_user.name = sanitize_text(body.name, max_length=255) or current_user.name
         current_user.region = (body.region or "").strip() or None
         await db.flush()
         await db.refresh(current_user)
@@ -363,15 +363,15 @@ async def onboarding(
         if not company:
             company = Company(
                 bin=bin_clean,
-                name=body.company_name,
-                legal_address=body.legal_address,
-                chairman_name=body.chairman_name,
+                name=sanitize_text(body.company_name, max_length=512),
+                legal_address=sanitize_text(body.legal_address, max_length=512),
+                chairman_name=sanitize_text(body.chairman_name, max_length=255),
                 status=CompanyStatus.APPROVED,
             )
             db.add(company)
             await db.flush()
         current_user.role = UserRole.farmer
-        current_user.name = body.name or current_user.name
+        current_user.name = sanitize_text(body.name, max_length=255) or current_user.name
         current_user.region = (body.region or "").strip() or None
         current_user.company_id = company.id
         await db.flush()
@@ -402,11 +402,11 @@ async def onboarding(
         if not company:
             company = Company(
                 bin=bin_clean,
-                name=body.company_name,
-                legal_address=body.legal_address,
-                chairman_name=body.chairman_name or body.contact_name,
-                bank_iik=body.bank_iik,
-                bank_bik=body.bank_bik,
+                name=sanitize_text(body.company_name, max_length=512),
+                legal_address=sanitize_text(body.legal_address, max_length=512),
+                chairman_name=sanitize_text(body.chairman_name, max_length=255) or sanitize_text(body.contact_name, max_length=255),
+                bank_iik=sanitize_text(body.bank_iik, max_length=50),
+                bank_bik=sanitize_text(body.bank_bik, max_length=50),
                 region=region_value,
                 status=CompanyStatus.PENDING_APPROVAL,
             )
@@ -418,7 +418,7 @@ async def onboarding(
                 detail="Эта компания уже зарегистрирована. Обратитесь к администратору для подключения.",
             )
         current_user.role = UserRole.vendor
-        current_user.name = body.name or body.contact_name or current_user.name
+        current_user.name = sanitize_text(body.name, max_length=255) or sanitize_text(body.contact_name, max_length=255) or current_user.name
         current_user.company_id = company.id
         await db.flush()
         member = CompanyMember(

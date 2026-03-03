@@ -1,0 +1,29 @@
+# Secrets and env
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.venv
+venv
+ENV
+
+# Tests and coverage
+tests
+.pytest_cache
+.coverage
+htmlcov
+*.cover
+
+# Git and IDE
+.git
+.gitignore
+*.md
+
+# Local and misc
+*.log
+.DS_Store

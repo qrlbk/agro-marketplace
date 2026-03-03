@@ -6,26 +6,11 @@ import {
   setStaffAuthRefresher,
   type StaffMe as StaffMeType,
 } from "../../api/client";
+import { ALL_PERMISSIONS } from "../../constants/permissions";
 
 const STAFF_TOKEN_KEY = "staff_token";
 const STAFF_REFRESH_TOKEN_KEY = "staff_refresh_token";
 const DEMO_TOKEN = "__staff_demo__";
-
-const ALL_PERMISSIONS = [
-  "dashboard.view",
-  "orders.view",
-  "orders.edit",
-  "vendors.view",
-  "vendors.approve",
-  "feedback.view",
-  "feedback.edit",
-  "users.view",
-  "users.edit",
-  "audit.view",
-  "search.view",
-  "staff.manage",
-  "roles.manage",
-];
 
 const DEMO_STAFF: StaffMeType = {
   id: 0,

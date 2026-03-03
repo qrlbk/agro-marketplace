@@ -22,7 +22,20 @@ from app.schemas.order import OrderItemOut, AdminOrderOut
 from app.schemas.feedback import FeedbackTicketAdminOut, FeedbackTicketUpdate, FeedbackMessageOut, ReplyTemplateOut, ReplyTemplateCreate
 from app.schemas.audit import AuditLogOut
 from app.dependencies import require_admin_or_staff, get_client_ip
+from app.constants.permissions import (
+    PERMISSION_USERS_VIEW,
+    PERMISSION_USERS_EDIT,
+    PERMISSION_DASHBOARD_VIEW,
+    PERMISSION_VENDORS_VIEW,
+    PERMISSION_VENDORS_APPROVE,
+    PERMISSION_FEEDBACK_VIEW,
+    PERMISSION_FEEDBACK_EDIT,
+    PERMISSION_ORDERS_VIEW,
+    PERMISSION_SEARCH_VIEW,
+    PERMISSION_AUDIT_VIEW,
+)
 from app.models.staff import Staff
+from app.utils.sanitize import sanitize_text_required
 from app.services.audit import write_audit_log, write_staff_audit_log
 from app.services.redis_client import get_redis
 from pydantic import BaseModel
@@ -55,7 +68,7 @@ async def list_users(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("users.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_USERS_VIEW)),
 ):
     base = (
         select(User)
@@ -96,7 +109,7 @@ async def list_users(
 async def get_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("users.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_USERS_VIEW)),
 ):
     result = await db.execute(
         select(User)
@@ -127,7 +140,7 @@ async def set_user_role(
     body: UserUpdateRole,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("users.edit")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_USERS_EDIT)),
 ):
     result = await db.execute(
         select(User)
@@ -177,7 +190,7 @@ async def set_user_role(
 @router.get("/analytics")
 async def analytics(
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("dashboard.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_DASHBOARD_VIEW)),
 ):
     total_orders = (await db.execute(select(func.count()).select_from(Order))).scalar() or 0
     total_revenue = (await db.execute(select(func.coalesce(func.sum(Order.total_amount), 0)).select_from(Order))).scalar() or 0
@@ -196,7 +209,7 @@ async def analytics(
 @router.get("/vendors/pending", response_model=list[PendingVendorOut])
 async def list_pending_vendors(
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("vendors.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_VENDORS_VIEW)),
 ):
     stmt = (
         select(User, Company)
@@ -227,7 +240,7 @@ async def approve_vendor(
     request: Request,
     company_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("vendors.approve")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_VENDORS_APPROVE)),
 ):
     result = await db.execute(
         select(Company).where(Company.id == company_id)
@@ -258,7 +271,7 @@ async def reject_vendor(
     request: Request,
     company_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("vendors.approve")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_VENDORS_APPROVE)),
 ):
     result = await db.execute(
         select(Company).where(Company.id == company_id)
@@ -378,7 +391,7 @@ async def list_feedback(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("feedback.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_FEEDBACK_VIEW)),
 ):
     try:
         return await _list_feedback_impl(
@@ -455,7 +468,7 @@ async def _list_feedback_impl(
 @router.get("/feedback/reply-templates", response_model=list[ReplyTemplateOut])
 async def list_reply_templates(
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("feedback.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_FEEDBACK_VIEW)),
 ):
     result = await db.execute(select(ReplyTemplate).order_by(ReplyTemplate.id))
     return list(result.scalars().all())
@@ -465,9 +478,12 @@ async def list_reply_templates(
 async def create_reply_template(
     body: ReplyTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("feedback.edit")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_FEEDBACK_EDIT)),
 ):
-    t = ReplyTemplate(name=body.name.strip(), body=body.body.strip())
+    t = ReplyTemplate(
+        name=sanitize_text_required(body.name, max_length=255),
+        body=sanitize_text_required(body.body, max_length=50000),
+    )
     db.add(t)
     await db.flush()
     await db.refresh(t)
@@ -478,7 +494,7 @@ async def create_reply_template(
 async def get_feedback(
     ticket_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("feedback.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_FEEDBACK_VIEW)),
 ):
     result = await db.execute(
         select(FeedbackTicket)
@@ -510,7 +526,7 @@ async def update_feedback(
     ticket_id: int,
     body: FeedbackTicketUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("feedback.edit")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_FEEDBACK_EDIT)),
 ):
     result = await db.execute(select(FeedbackTicket).where(FeedbackTicket.id == ticket_id))
     ticket = result.scalar_one_or_none()
@@ -634,7 +650,7 @@ async def list_admin_orders(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("orders.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_ORDERS_VIEW)),
 ):
     stmt = (
         select(Order)
@@ -674,7 +690,7 @@ async def list_admin_orders(
 async def get_admin_order(
     order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("orders.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_ORDERS_VIEW)),
 ):
     result = await db.execute(
         select(Order).where(Order.id == order_id).options(selectinload(Order.items))
@@ -699,7 +715,7 @@ async def get_admin_order(
 async def admin_search(
     q: str = Query(..., min_length=1),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("search.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_SEARCH_VIEW)),
 ):
     q_trim = q.strip()
     if not q_trim:
@@ -767,7 +783,7 @@ async def admin_dashboard(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("dashboard.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_DASHBOARD_VIEW)),
 ):
     cache_key = f"admin:dashboard:{date_from or 'all'}:{date_to or 'all'}"
     try:
@@ -873,7 +889,7 @@ class SendNotificationIn(BaseModel):
 async def send_notification(
     body: SendNotificationIn,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("users.edit")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_USERS_EDIT)),
 ):
     user = await db.get(User, body.user_id)
     if not user:
@@ -899,7 +915,7 @@ async def admin_audit_log(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_staff("audit.view")),
+    current_user=Depends(require_admin_or_staff(PERMISSION_AUDIT_VIEW)),
 ):
     """List audit log entries. Optional filters: company_id, user_id, staff_id, action."""
     try:

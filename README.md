@@ -39,6 +39,7 @@ CI (GitHub Actions) runs backend unit tests and frontend build + tests on push/P
 - В production задайте `ENVIRONMENT=prod` и оставьте `DEMO_AUTH_ENABLED=false`. Демо-вход в prod отключён на уровне кода (404).
 - Перед первым запуском миграций в prod/stage задайте `STAFF_DEFAULT_LOGIN` и `STAFF_DEFAULT_PASSWORD` (миграция 008 создаёт первого сотрудника); используйте надёжный пароль.
 - Если API развёрнуто за обратным прокси, задайте `TRUSTED_PROXIES` (через запятую) и при необходимости `HEALTH_API_KEY`, чтобы `/health/ready` не был публичным.
+- В production используйте шифрование подключений: для PostgreSQL задайте `DATABASE_URL` с параметром `sslmode=require` (или аналог для asyncpg); для Redis — `REDIS_URL=rediss://...` (схема `rediss` включает TLS).
 - Включайте `CHAT_STORE_ENABLED` только когда пользователи согласились на хранение чатов (флаг `chat_storage_opt_in`), иначе история LLM не сохраняется.
-- Квота для хранилища продавца регулируется `VENDOR_STORAGE_QUOTA_MB`; превышение возвращает 413 и пишется в аудит.
-- Файлы проверяются через ClamAV (`CLAMAV_SCAN_COMMAND`, по умолчанию `clamdscan`). Если антивирус не доступен, загрузки блокируются.
+- Квота для хранилища продавца регулируется `VENDOR_STORAGE_QUOTA_MB`; превышение возвращает 413 и пишется в аудит. В production задайте квоту по политике хранилища.
+- Файлы проверяются через ClamAV (`CLAMAV_SCAN_COMMAND`, по умолчанию `clamdscan`). Если антивирус не доступен, загрузки блокируются. В production рекомендуется задать `CLAMAV_SCAN_COMMAND` и обеспечить доступность ClamAV для проверки загружаемых файлов.

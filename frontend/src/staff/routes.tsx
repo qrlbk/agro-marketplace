@@ -15,17 +15,28 @@ import { StaffSearch } from "./pages/StaffSearch";
 import { StaffEmployees } from "./pages/StaffEmployees";
 import { StaffRoles } from "./pages/StaffRoles";
 import { StaffProfile } from "./pages/StaffProfile";
+import {
+  PERMISSION_DASHBOARD_VIEW,
+  PERMISSION_ORDERS_VIEW,
+  PERMISSION_VENDORS_VIEW,
+  PERMISSION_USERS_VIEW,
+  PERMISSION_FEEDBACK_VIEW,
+  PERMISSION_AUDIT_VIEW,
+  PERMISSION_SEARCH_VIEW,
+  PERMISSION_STAFF_MANAGE,
+  PERMISSION_ROLES_MANAGE,
+} from "../constants/permissions";
 
 const PERMISSION_ROUTES: { permission: string; path: string }[] = [
-  { permission: "dashboard.view", path: "/staff/dashboard" },
-  { permission: "orders.view", path: "/staff/orders" },
-  { permission: "vendors.view", path: "/staff/vendors" },
-  { permission: "users.view", path: "/staff/users" },
-  { permission: "feedback.view", path: "/staff/feedback" },
-  { permission: "audit.view", path: "/staff/audit" },
-  { permission: "search.view", path: "/staff/search" },
-  { permission: "staff.manage", path: "/staff/employees" },
-  { permission: "roles.manage", path: "/staff/roles" },
+  { permission: PERMISSION_DASHBOARD_VIEW, path: "/staff/dashboard" },
+  { permission: PERMISSION_ORDERS_VIEW, path: "/staff/orders" },
+  { permission: PERMISSION_VENDORS_VIEW, path: "/staff/vendors" },
+  { permission: PERMISSION_USERS_VIEW, path: "/staff/users" },
+  { permission: PERMISSION_FEEDBACK_VIEW, path: "/staff/feedback" },
+  { permission: PERMISSION_AUDIT_VIEW, path: "/staff/audit" },
+  { permission: PERMISSION_SEARCH_VIEW, path: "/staff/search" },
+  { permission: PERMISSION_STAFF_MANAGE, path: "/staff/employees" },
+  { permission: PERMISSION_ROLES_MANAGE, path: "/staff/roles" },
 ];
 
 function getFirstAllowedPath(hasPermission: (p: string) => boolean): string {
@@ -82,18 +93,18 @@ export function StaffRoutes() {
         }
       >
         <Route index element={<StaffRedirect />} />
-        <Route path="dashboard" element={<RequireStaffPermission permission="dashboard.view"><StaffDashboard /></RequireStaffPermission>} />
-        <Route path="orders" element={<RequireStaffPermission permission="orders.view"><StaffOrders /></RequireStaffPermission>} />
-        <Route path="orders/:orderId" element={<RequireStaffPermission permission="orders.view"><StaffOrderDetail /></RequireStaffPermission>} />
-        <Route path="vendors" element={<RequireStaffPermission permission="vendors.view"><StaffVendors /></RequireStaffPermission>} />
-        <Route path="users" element={<RequireStaffPermission permission="users.view"><StaffUsers /></RequireStaffPermission>} />
-        <Route path="users/:userId" element={<RequireStaffPermission permission="users.view"><StaffUserProfile /></RequireStaffPermission>} />
-        <Route path="feedback" element={<RequireStaffPermission permission="feedback.view"><StaffFeedback /></RequireStaffPermission>} />
-        <Route path="feedback/:ticketId" element={<RequireStaffPermission permission="feedback.view"><StaffFeedbackDetail /></RequireStaffPermission>} />
-        <Route path="audit" element={<RequireStaffPermission permission="audit.view"><StaffAudit /></RequireStaffPermission>} />
-        <Route path="search" element={<RequireStaffPermission permission="search.view"><StaffSearch /></RequireStaffPermission>} />
-        <Route path="employees" element={<RequireStaffPermission permission="staff.manage"><StaffEmployees /></RequireStaffPermission>} />
-        <Route path="roles" element={<RequireStaffPermission permission="roles.manage"><StaffRoles /></RequireStaffPermission>} />
+        <Route path="dashboard" element={<RequireStaffPermission permission={PERMISSION_DASHBOARD_VIEW}><StaffDashboard /></RequireStaffPermission>} />
+        <Route path="orders" element={<RequireStaffPermission permission={PERMISSION_ORDERS_VIEW}><StaffOrders /></RequireStaffPermission>} />
+        <Route path="orders/:orderId" element={<RequireStaffPermission permission={PERMISSION_ORDERS_VIEW}><StaffOrderDetail /></RequireStaffPermission>} />
+        <Route path="vendors" element={<RequireStaffPermission permission={PERMISSION_VENDORS_VIEW}><StaffVendors /></RequireStaffPermission>} />
+        <Route path="users" element={<RequireStaffPermission permission={PERMISSION_USERS_VIEW}><StaffUsers /></RequireStaffPermission>} />
+        <Route path="users/:userId" element={<RequireStaffPermission permission={PERMISSION_USERS_VIEW}><StaffUserProfile /></RequireStaffPermission>} />
+        <Route path="feedback" element={<RequireStaffPermission permission={PERMISSION_FEEDBACK_VIEW}><StaffFeedback /></RequireStaffPermission>} />
+        <Route path="feedback/:ticketId" element={<RequireStaffPermission permission={PERMISSION_FEEDBACK_VIEW}><StaffFeedbackDetail /></RequireStaffPermission>} />
+        <Route path="audit" element={<RequireStaffPermission permission={PERMISSION_AUDIT_VIEW}><StaffAudit /></RequireStaffPermission>} />
+        <Route path="search" element={<RequireStaffPermission permission={PERMISSION_SEARCH_VIEW}><StaffSearch /></RequireStaffPermission>} />
+        <Route path="employees" element={<RequireStaffPermission permission={PERMISSION_STAFF_MANAGE}><StaffEmployees /></RequireStaffPermission>} />
+        <Route path="roles" element={<RequireStaffPermission permission={PERMISSION_ROLES_MANAGE}><StaffRoles /></RequireStaffPermission>} />
         <Route path="profile" element={<StaffProfile />} />
       </Route>
     </Routes>

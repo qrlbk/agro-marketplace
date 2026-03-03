@@ -18,7 +18,9 @@ from app.schemas.staff import (
     StaffRefreshTokenIn,
 )
 from app.dependencies import get_current_staff, get_current_staff_with_permission, get_current_staff_with_any_permission, STAFF_JWT_ISSUER, get_client_ip, security
+from app.constants.permissions import ALL_PERMISSION_CODES, PERMISSION_STAFF_MANAGE, PERMISSION_ROLES_MANAGE
 from app.services.audit import write_staff_audit_log
+from app.utils.sanitize import sanitize_text
 from app.services.redis_client import get_redis
 
 router = APIRouter()
@@ -224,11 +226,7 @@ async def staff_login(
     await _reset_staff_login_counters(login, client_ip)
     permissions = [p.code for p in staff.role.permissions] if staff.role else []
     if staff.role and staff.role.slug == "super_admin":
-        permissions = [
-            "dashboard.view", "orders.view", "orders.edit", "vendors.view", "vendors.approve",
-            "feedback.view", "feedback.edit", "users.view", "users.edit", "audit.view", "search.view",
-            "staff.manage", "roles.manage",
-        ]
+        permissions = list(ALL_PERMISSION_CODES)
     token_out = _make_staff_token_out(staff.id, permissions)
     await write_staff_audit_log(
         db,
@@ -279,11 +277,7 @@ async def staff_refresh(
             await blacklist_token(jti, remaining)
     permissions = [p.code for p in staff.role.permissions] if staff.role else []
     if staff.role and staff.role.slug == "super_admin":
-        permissions = [
-            "dashboard.view", "orders.view", "orders.edit", "vendors.view", "vendors.approve",
-            "feedback.view", "feedback.edit", "users.view", "users.edit", "audit.view", "search.view",
-            "staff.manage", "roles.manage",
-        ]
+        permissions = list(ALL_PERMISSION_CODES)
     return _make_staff_token_out(staff.id, permissions)
 
 
@@ -333,7 +327,7 @@ async def staff_change_password(
 @router.get("/employees", response_model=list[StaffEmployeeOut])
 async def list_employees(
     db: AsyncSession = Depends(get_db),
-    staff: Staff = Depends(get_current_staff_with_permission("staff.manage")),
+    staff: Staff = Depends(get_current_staff_with_permission(PERMISSION_STAFF_MANAGE)),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -361,7 +355,7 @@ async def list_employees(
 async def create_employee(
     body: StaffEmployeeCreate,
     db: AsyncSession = Depends(get_db),
-    staff: Staff = Depends(get_current_staff_with_permission("staff.manage")),
+    staff: Staff = Depends(get_current_staff_with_permission(PERMISSION_STAFF_MANAGE)),
 ):
     existing = await db.execute(select(Staff).where(Staff.login == body.login.strip()))
     if existing.scalar_one_or_none():
@@ -376,7 +370,7 @@ async def create_employee(
         login=body.login.strip(),
         password_hash=pwd_ctx.hash(password),
         role_id=body.role_id,
-        name=(body.name.strip() or None) if (body.name and body.name.strip()) else None,
+        name=sanitize_text(body.name, max_length=255),
         is_active=body.is_active,
     )
     db.add(new_staff)
@@ -400,14 +394,14 @@ async def update_employee(
     employee_id: int,
     body: StaffEmployeeUpdate,
     db: AsyncSession = Depends(get_db),
-    staff: Staff = Depends(get_current_staff_with_permission("staff.manage")),
+    staff: Staff = Depends(get_current_staff_with_permission(PERMISSION_STAFF_MANAGE)),
 ):
     result = await db.execute(select(Staff).where(Staff.id == employee_id).options(selectinload(Staff.role)))
     emp = result.scalar_one_or_none()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     if body.name is not None:
-        emp.name = body.name.strip() or None if body.name else None
+        emp.name = sanitize_text(body.name, max_length=255)
     if body.role_id is not None:
         r = await db.execute(select(Role).where(Role.id == body.role_id))
         if not r.scalar_one_or_none():
@@ -439,7 +433,7 @@ async def update_employee(
 @router.get("/permissions", response_model=list[PermissionOut])
 async def list_permissions(
     db: AsyncSession = Depends(get_db),
-    staff: Staff = Depends(get_current_staff_with_permission("roles.manage")),
+    staff: Staff = Depends(get_current_staff_with_permission(PERMISSION_ROLES_MANAGE)),
 ):
     result = await db.execute(select(Permission).order_by(Permission.code))
     perms = result.scalars().all()
@@ -451,7 +445,7 @@ async def list_permissions(
 @router.get("/roles", response_model=list[RoleOut])
 async def list_roles(
     db: AsyncSession = Depends(get_db),
-    staff: Staff = Depends(get_current_staff_with_any_permission("roles.manage", "staff.manage")),
+    staff: Staff = Depends(get_current_staff_with_any_permission(PERMISSION_ROLES_MANAGE, PERMISSION_STAFF_MANAGE)),
 ):
     result = await db.execute(
         select(Role).options(selectinload(Role.permissions)).order_by(Role.id)
@@ -473,12 +467,14 @@ async def list_roles(
 async def create_role(
     body: RoleCreate,
     db: AsyncSession = Depends(get_db),
-    staff: Staff = Depends(get_current_staff_with_permission("roles.manage")),
+    staff: Staff = Depends(get_current_staff_with_permission(PERMISSION_ROLES_MANAGE)),
 ):
-    existing = await db.execute(select(Role).where(Role.slug == body.slug.strip()))
+    slug_clean = sanitize_text(body.slug, max_length=64) or (body.slug or "").strip()
+    existing = await db.execute(select(Role).where(Role.slug == slug_clean))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Slug already exists")
-    new_role = Role(name=body.name.strip(), slug=body.slug.strip(), is_system=False)
+    name_clean = sanitize_text(body.name, max_length=64) or (body.name or "").strip()
+    new_role = Role(name=name_clean, slug=slug_clean, is_system=False)
     db.add(new_role)
     await db.flush()
     if body.permission_ids:
@@ -498,7 +494,7 @@ async def update_role(
     role_id: int,
     body: RoleUpdate,
     db: AsyncSession = Depends(get_db),
-    staff: Staff = Depends(get_current_staff_with_permission("roles.manage")),
+    staff: Staff = Depends(get_current_staff_with_permission(PERMISSION_ROLES_MANAGE)),
 ):
     result = await db.execute(select(Role).where(Role.id == role_id).options(selectinload(Role.permissions)))
     role = result.scalar_one_or_none()
@@ -507,9 +503,9 @@ async def update_role(
     if role.is_system and body.slug is not None and body.slug.strip() != role.slug:
         raise HTTPException(status_code=400, detail="Cannot change slug of system role")
     if body.name is not None:
-        role.name = body.name.strip()
+        role.name = sanitize_text(body.name, max_length=64) or (body.name or "").strip()
     if body.slug is not None and (not role.is_system or body.slug.strip() == role.slug):
-        slug = body.slug.strip()
+        slug = sanitize_text(body.slug, max_length=64) or (body.slug or "").strip()
         if slug != role.slug:
             ex = await db.execute(select(Role).where(Role.slug == slug))
             if ex.scalar_one_or_none():

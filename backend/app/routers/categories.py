@@ -5,7 +5,9 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.category import Category
 from app.schemas.category import CategoryOut, CategoryCreate, CategoryTreeOut
-from app.dependencies import get_current_admin
+from app.dependencies import require_role
+from app.models.user import UserRole
+from app.utils.sanitize import sanitize_text_required
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,9 +49,13 @@ async def tree_categories(db: AsyncSession = Depends(get_db)):
 async def create_category(
     body: CategoryCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_admin),
+    current_user=Depends(require_role(UserRole.admin)),
 ):
-    cat = Category(parent_id=body.parent_id, name=body.name, slug=body.slug)
+    cat = Category(
+        parent_id=body.parent_id,
+        name=sanitize_text_required(body.name, max_length=255),
+        slug=sanitize_text_required(body.slug, max_length=255),
+    )
     db.add(cat)
     await db.flush()
     await db.refresh(cat)
@@ -60,7 +66,7 @@ async def create_category(
 async def delete_category(
     category_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_admin),
+    current_user=Depends(require_role(UserRole.admin)),
 ):
     result = await db.execute(select(Category).where(Category.id == category_id))
     cat = result.scalar_one_or_none()

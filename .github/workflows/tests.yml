@@ -24,6 +24,16 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
+      - name: Security (pip-audit)
+        run: |
+          cd backend
+          pip install pip-audit
+          pip-audit -r requirements.txt
+      - name: Security (Bandit)
+        run: |
+          cd backend
+          pip install bandit
+          bandit -r app -ll -c bandit.yaml
       - name: Run unit tests
         run: |
           cd backend
@@ -43,6 +53,10 @@ jobs:
         run: |
           cd frontend
           npm ci
+      - name: Security (npm audit)
+        run: |
+          cd frontend
+          npm audit --audit-level=high
       - name: Build
         run: |
           cd frontend

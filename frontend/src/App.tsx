@@ -43,6 +43,7 @@ import { AdminFeedbackDetail } from "./pages/admin/AdminFeedbackDetail";
 import { AdminAudit } from "./pages/admin/AdminAudit";
 import { AdminSearch } from "./pages/admin/AdminSearch";
 import { ReturnsPolicy } from "./pages/ReturnsPolicy";
+import { VENDOR_AND_ADMIN_ROLES, ADMIN_ROLE } from "./constants/roles";
 
 const LANG_STORAGE_KEY = "agro-lang";
 
@@ -60,7 +61,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout, token } = useAuth();
   const cartItemCount = useCartCount();
   const { count: unreadNotificationsCount, refresh: refreshNotificationsCount } = useUnreadNotificationsCount(
-    user?.role === "vendor" || user?.role === "admin" ? token : null
+    VENDOR_AND_ADMIN_ROLES.includes(user?.role ?? "") ? token : null
   );
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? "";
@@ -127,11 +128,11 @@ export default function App() {
         <Route path="/cart" element={<RequireAuth><Cart /></RequireAuth>} />
         <Route path="/orders" element={<RequireAuth><RequireOnboardingDone><Orders /></RequireOnboardingDone></RequireAuth>} />
         <Route path="/login" element={<Login />} />
-        <Route path="/vendor" element={<RequireAuth><RequireRole roles={["admin", "vendor"]}><VendorUpload /></RequireRole></RequireAuth>} />
-        <Route path="/vendor/products" element={<RequireAuth><RequireRole roles={["admin", "vendor"]}><VendorProducts /></RequireRole></RequireAuth>} />
-        <Route path="/vendor/warehouse" element={<RequireAuth><RequireRole roles={["admin", "vendor"]}><Warehouse /></RequireRole></RequireAuth>} />
-        <Route path="/vendor/team" element={<RequireAuth><RequireRole roles={["admin", "vendor"]}><VendorTeam /></RequireRole></RequireAuth>} />
-        <Route path="/vendor/audit" element={<RequireAuth><RequireRole roles={["admin", "vendor"]}><VendorAudit /></RequireRole></RequireAuth>} />
+        <Route path="/vendor" element={<RequireAuth><RequireRole roles={VENDOR_AND_ADMIN_ROLES}><VendorUpload /></RequireRole></RequireAuth>} />
+        <Route path="/vendor/products" element={<RequireAuth><RequireRole roles={VENDOR_AND_ADMIN_ROLES}><VendorProducts /></RequireRole></RequireAuth>} />
+        <Route path="/vendor/warehouse" element={<RequireAuth><RequireRole roles={VENDOR_AND_ADMIN_ROLES}><Warehouse /></RequireRole></RequireAuth>} />
+        <Route path="/vendor/team" element={<RequireAuth><RequireRole roles={VENDOR_AND_ADMIN_ROLES}><VendorTeam /></RequireRole></RequireAuth>} />
+        <Route path="/vendor/audit" element={<RequireAuth><RequireRole roles={VENDOR_AND_ADMIN_ROLES}><VendorAudit /></RequireRole></RequireAuth>} />
         <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
         <Route path="/feedback" element={<Feedback />} />
         <Route path="/returns" element={<ReturnsPolicy />} />
@@ -140,7 +141,7 @@ export default function App() {
           path="/admin"
           element={
             <RequireAuth>
-              <RequireRole roles={["admin"]}>
+              <RequireRole roles={ADMIN_ROLE}>
                 <AdminLayout />
               </RequireRole>
             </RequireAuth>

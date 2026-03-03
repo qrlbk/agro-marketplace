@@ -179,11 +179,12 @@ def get_current_staff_with_any_permission(*permission_codes: str):
 
 async def get_current_admin_or_staff(
     permission_code: str,
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User | Staff:
     """Accept either marketplace User (admin) or Staff with given permission (staff-portal JWT)."""
-    user = await get_current_user_optional(credentials, db)
+    user = await get_current_user_optional(request, credentials, db)
     if user and user.role == UserRole.admin:
         return user
     if not credentials:
@@ -225,10 +226,11 @@ async def get_current_admin_or_staff(
 
 def require_admin_or_staff(permission_code: str):
     async def dep(
+        request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(security),
         db: AsyncSession = Depends(get_db),
     ):
-        return await get_current_admin_or_staff(permission_code, credentials, db)
+        return await get_current_admin_or_staff(permission_code, request, credentials, db)
     return dep
 
 

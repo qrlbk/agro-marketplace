@@ -4,7 +4,8 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.machine import Machine
 from app.schemas.machine import MachineOut, MachineCreate
-from app.dependencies import get_current_admin
+from app.dependencies import require_role
+from app.models.user import UserRole
 
 router = APIRouter()
 
@@ -26,7 +27,7 @@ async def list_machines(
 async def create_machine(
     body: MachineCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_admin),
+    current_user=Depends(require_role(UserRole.admin)),
 ):
     machine = Machine(brand=body.brand, model=body.model, year=body.year)
     db.add(machine)

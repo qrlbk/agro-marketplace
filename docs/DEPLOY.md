@@ -13,6 +13,8 @@ docker compose -f docker/docker-compose.prod.yml up -d --build
 
 - `POSTGRES_PASSWORD` — пароль PostgreSQL (обязателен в prod-композе).
 - В `backend/.env`: `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` (не дефолтный), при необходимости `DEMO_AUTH_ENABLED=false`, SMS, OpenAI и т.д. (см. `backend/.env.example`).
+- **RLS:** для работы политик Row Level Security (миграция 023) приложение должно подключаться к БД **не от имени владельца таблиц** (owner обходит RLS). Настройте отдельную роль БД для приложения.
+- **Staff:** при первом запуске миграции 008 требуются `STAFF_DEFAULT_LOGIN` и `STAFF_DEFAULT_PASSWORD` для создания первого сотрудника. Рекомендуется задать отдельный секрет для staff JWT: `STAFF_JWT_SECRET`.
 
 Порты по умолчанию:
 

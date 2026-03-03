@@ -17,7 +17,7 @@ from app.dependencies import get_current_vendor, get_current_admin, get_product_
 from app.services.redis_client import get_redis, cache_get, cache_set, cache_key_prefix, invalidate_product_cache
 from app.services.search_suggest import get_search_suggestions
 from app.services.audit import write_audit_log
-from app.utils.sanitize import sanitize_image_urls
+from app.utils.sanitize import sanitize_image_urls, sanitize_text, sanitize_text_required
 from app.config import settings
 
 router = APIRouter()
@@ -389,17 +389,17 @@ async def create_product(
     current_user: User = Depends(get_current_vendor),
     _rl: None = Depends(rate_limit("product_write", 20, 60)),
 ):
-    article_number = (body.article_number or "").strip() or generate_article_number()
+    article_number = sanitize_text((body.article_number or "").strip() or generate_article_number(), max_length=128) or generate_article_number()
     product = Product(
         vendor_id=current_user.id,
         category_id=body.category_id,
-        name=body.name,
+        name=sanitize_text_required(body.name, max_length=512),
         article_number=article_number,
         price=body.price,
         stock_quantity=body.stock_quantity,
-        description=body.description,
+        description=sanitize_text(body.description, max_length=2048),
         characteristics=body.characteristics,
-        composition=body.composition,
+        composition=sanitize_text(body.composition, max_length=2048),
         images=sanitize_image_urls(body.images),
         status=body.status,
     )
@@ -434,6 +434,14 @@ async def update_product(
     updates = body.model_dump(exclude_unset=True)
     if "article_number" in updates and not (updates["article_number"] or "").strip():
         updates["article_number"] = generate_article_number()
+    if "name" in updates and updates["name"] is not None:
+        updates["name"] = sanitize_text_required(updates["name"], max_length=512)
+    if "description" in updates:
+        updates["description"] = sanitize_text(updates["description"], max_length=2048)
+    if "composition" in updates:
+        updates["composition"] = sanitize_text(updates["composition"], max_length=2048)
+    if "article_number" in updates and updates["article_number"]:
+        updates["article_number"] = sanitize_text(updates["article_number"], max_length=128) or updates["article_number"]
     if "images" in updates:
         updates["images"] = sanitize_image_urls(updates["images"])
     old_price = product.price
